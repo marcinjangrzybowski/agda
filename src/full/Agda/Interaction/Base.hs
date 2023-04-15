@@ -297,6 +297,7 @@ data Interaction' range
 
   | Cmd_compute         ComputeMode
                         InteractionId range String
+  | Cmd_cubeViz String                 
 
   | Cmd_why_in_scope    InteractionId range String
   | Cmd_why_in_scope_toplevel String

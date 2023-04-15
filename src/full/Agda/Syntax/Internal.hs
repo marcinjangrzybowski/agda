@@ -754,6 +754,7 @@ data PathView
     }
   | OType Type -- ^ reduced
 
+
 isPathType :: PathView -> Bool
 isPathType PathType{} = True
 isPathType OType{}    = False
@@ -770,6 +771,8 @@ data IntervalView
 isIOne :: IntervalView -> Bool
 isIOne IOne = True
 isIOne _ = False
+
+-- newtype ITerm = ITerm (Set.Set ( Set.Set (Int , Bool)))
 
 ---------------------------------------------------------------------------
 -- * Absurd Lambda

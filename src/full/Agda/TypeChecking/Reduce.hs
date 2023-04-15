@@ -747,8 +747,12 @@ reduceDefCopy :: forall m. PureTCM m => QName -> Elims -> m (Reduced () Term)
 reduceDefCopy f es = do
   info <- getConstInfo f
   case theDef info of
-    _ | not $ defCopy info     -> return $ NoReduction ()
-    Constructor{conSrcCon = c} -> return $ YesReduction YesSimplification (Con c ConOSystem es)
+    _ | not $ defCopy info     -> do
+          -- (reportSDoc "tc.reduce" 20 $ "*** reduced def copy definition NO: " <+> pretty (theDef info))
+          return $ NoReduction ()
+    Constructor{conSrcCon = c} -> do
+          -- (reportSDoc "tc.reduce" 20 $ "*** reduced def copy definition YesR: " <+> pretty (theDef info))
+          return $ YesReduction YesSimplification (Con c ConOSystem es)
     _                          -> reduceDef_ info f es
   where
     reduceDef_ :: Definition -> QName -> Elims -> m (Reduced () Term)
@@ -869,6 +873,7 @@ appDefE' f v cls rewr es =
 -- | Expects @'envAppDef' = Just f@ in 'TCEnv' to be able to report @'MissingClauses' f@.
 appDefE'' :: Term -> [Clause] -> RewriteRules -> MaybeReducedElims -> ReduceM (Reduced (Blocked Term) Term)
 appDefE'' v cls rewr es = traceSDoc "tc.reduce" 90 ("appDefE' v = " <+> pretty v) $ do
+  reportSDoc "tc.reduce" 20 $ "*** appDefE'': " <+> pretty cls
   goCls cls $ map ignoreReduced es
   where
     goCls :: [Clause] -> [Elim] -> ReduceM (Reduced (Blocked Term) Term)

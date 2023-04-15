@@ -12,6 +12,9 @@ import Control.Monad.IO.Class ( MonadIO(..) )
 import Control.Monad.State    ( evalStateT )
 import Control.Monad.Trans    ( lift )
 
+import System.IO ( writeFile )
+import System.Process (runCommand, createProcess , shell , std_err , std_out , StdStream( CreatePipe ))
+import System.Directory (removeFile,doesFileExist) 
 import qualified Data.List as List
 
 import Agda.Syntax.Common
@@ -19,7 +22,11 @@ import Agda.Syntax.Position
 import Agda.Syntax.Scope.Base
 import Agda.Syntax.Abstract.Pretty (prettyATop)
 import Agda.Syntax.Abstract as A
+import Agda.Syntax.Abstract.Views as AV
 import Agda.Syntax.Concrete as C
+import Agda.Syntax.Concrete.Pretty as CP
+import Agda.Syntax.Translation.InternalToAbstract as I2A
+import Agda.Syntax.Internal as I
 
 import Agda.TypeChecking.Errors ( explainWhyInScope, getAllWarningsOfTCErr, prettyError )
 import qualified Agda.TypeChecking.Pretty as TCP
@@ -42,6 +49,13 @@ import Agda.Utils.Pretty
 import Agda.Utils.String
 import Agda.Utils.Time (CPUTime)
 import Agda.VersionCommit
+import Agda.Utils.List1 (List1 , NonEmpty(..)) 
+import qualified Agda.Utils.List1 as L1 
+import Agda.Utils.Suffix
+
+import Agda.TypeChecking.Substitute.Class
+
+import Data.Maybe (maybeToList)
 
 ----------------------------------
 
@@ -198,7 +212,138 @@ lispifyDisplayInfo info = case info of
       format (render doc) "*Intro*"
     Info_Version -> format ("Agda version " ++ versionWithCommitInfo) "*Agda Version*"
     Info_GoalSpecific ii kind -> lispifyGoalSpecificDisplayInfo ii kind
+    Info_Viz vd -> lispifyVizData vd
 
+
+lispifyVizData :: VizData -> TCM [Lisp String]
+lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
+     (lamArgs , cdTyE) <- (AV.funOrPiTypeArgs) <$>
+        locallyTC eEnvCubeViz
+             (\(EnvCubeViz b _) -> EnvCubeViz b True) 
+             (reify (I2A.PiDomPart' True 0 (tTy)))
+     let rTm = reApply lamArgs
+     tTm' <- B.normalFormForCubeViz rTm
+     (e , ctx , lamBinds) <- reifyStripLams tTm'
+     eDoc <- prettyExpr e
+     doc <- TCP.vcat
+         [ "Goal:" TCP.<+> prettyExpr cdTyE
+        , return $ "Elaborates to:" <+> eDoc
+        -- , return (vcat boundaryDoc)
+        , TCP.text (replicate 60 '\x2014')
+        , prettyCtx (zip lamArgs ctx)
+        , prettyExpr tTm'
+        -- , TCP.text (show lamBinds)
+         
+        ]
+
+         -- TCP.vcat $
+         --      (map (\(Arg ai (Named n x)) -> do
+         --               x' <- prettyExpr x
+         --               return (pretty (Arg ai (Named n x'))))
+         --          lamArgs)
+         --    ++ [ pure "Type:"
+         --    , prettyExpr cdTyE
+         --    , pure  "Term:"
+         --    , prettyExpr e
+            
+         --    ]
+     visualizeTerm doc
+     format (render doc) "*value and type for viz*"
+      -- exprDoc <- evalStateT prettyExpr state
+      -- let doc = maybe empty prettyTimed time $$ exprDoc
+      --     lbl | cmode == HeadCompute = "*Head Normal Form*"
+      --         | otherwise            = "*Normal Form*"
+      -- format (render doc) lbl
+      where
+
+        reApply :: ([(NamedArg A.Type)]) -> I.Term 
+        reApply args =
+          let t' = apply ((raise (length args)) tTm) $
+                     [ Arg a (I.Var (length args - k - 1) [])
+                     | (Arg a (Named mbN _) , k) <- zip args [0..]
+                     ]
+              args' :: [(Maybe String)]       
+              args' =
+                  map (\(Arg a (Named mbN _)) -> (rangedThing . woThing) <$>  mbN)
+                    args
+
+              args'' :: [String]
+              args'' = (reverse . snd) $
+                  foldl (\(k , xs) -> \case
+                            Just s -> (k , s : xs)
+                            Nothing -> (k + 1 , addSuffix "𝑥" (Subscript (k)) : xs))
+                              (0 , []) args' 
+
+                  
+          in foldr --(Named mbN _)
+                (\((Arg a _) , nm) ->
+                  I.Lam a . Abs  nm --(fromMaybe "i" ((rangedThing . woThing) <$>  mbN)) 
+                    )
+                 t' (zip args args'')
+
+        -- stripLamExpr :: A.Expr -> ( )
+        -- stripLamExpr = 
+
+        reifyStripLams :: I.Term -> TCM (A.Expr , [ArgName] , [A.LamBinding] ) 
+        reifyStripLams t = do
+          e <- reify t
+          let (LamView lbs e') = AV.lamView e
+              lbsNms = concat $
+                  map
+                  (\case
+                     A.DomainFree _ ((Arg _ (Named _ (A.Binder _ (A.BindName nm))))) ->
+                          [nameToArgName nm]
+                         -- maybeToList nm
+                     A.DomainFull (A.TBind _ _ nmArgs _) ->
+                        map (\(Arg _ (Named (Just nm) _)) ->
+                               (rangedThing . woThing) nm
+                            ) (L1.toList nmArgs)
+                          -- (A.TBind _ _
+                          --       nmArgs-- ((Arg _ (Named (Just nm) _)) :| [])
+                          --       _) -> []
+                      ) lbs
+                 
+          -- (L1.toList nal1)
+              
+          -- case lbs of
+          --   (A.DomainFull
+          --                     (A.TBind _ _ nal1
+          --                       -- ((Arg _ (Named (Just nm) _)) :| [])
+          --                       _)) -> 
+                                      
+          return (e' , lbsNms , lbs)
+          
+        cmode = IgnoreAbstract
+        prettyExpr e = B.atTopLevel
+            $ TCP.prettyTCM e
+            -- (B.showComputed cmode)
+            -- $ expr
+
+        prettyCtx :: [(NamedArg A.Type , ArgName)] -> TCM Doc
+        prettyCtx z = do
+          lns <- mapM (\((Arg _ (Named _ ty )) , nm
+                            -- (A.DomainFull
+                            --   (A.TBind _ _
+                            --     ((Arg _ (Named (Just nm) _)) :| [])
+                            --     _))
+                           -- (A.DomainFree _ ((Arg _ (Named (Just nm) _))))
+                        ) -> 
+              do tyDoc <- prettyExpr ty
+                 return (text (nm ++ "  : ") <+>  tyDoc)
+            ) z
+          return $ vcat (reverse lns) 
+
+
+visualizeTerm :: Doc -> TCM () 
+visualizeTerm doc = do
+  liftIO $ writeFile "/tmp/cubeViz2Input" (render doc)
+  liftIO $ do
+      dfe <-  doesFileExist "/tmp/cubeViz2Web/cvd.js"
+      if dfe then removeFile "/tmp/cubeViz2Web/cvd.js" else return ()
+  void $ liftIO $ createProcess
+        (shell "/Users/marcin/cubeViz2/dist-newstyle/build/x86_64-osx/ghc-8.10.7/cubeViz2-0.1.0.0/x/cubeViz2-exe/build/cubeViz2-exe/cubeViz2-exe /tmp/cubeViz2Input") { std_err = CreatePipe , std_out = CreatePipe }
+  
+  
 lispifyGoalSpecificDisplayInfo :: InteractionId -> GoalDisplayInfo -> TCM [Lisp String]
 lispifyGoalSpecificDisplayInfo ii kind = localTCState $ withInteractionId ii $
   case kind of
@@ -214,6 +359,7 @@ lispifyGoalSpecificDisplayInfo ii kind = localTCState $ withInteractionId ii $
       doc <- showComputed cmode expr
       format (render doc) "*Normal Form*"   -- show?
     Goal_GoalType norm aux ctx bndry constraints -> do
+      
       ctxDoc <- prettyResponseContext ii True ctx
       goalDoc <- prettyTypeOfMeta norm ii
       auxDoc <- case aux of
@@ -224,24 +370,30 @@ lispifyGoalSpecificDisplayInfo ii kind = localTCState $ withInteractionId ii $
             GoalAndElaboration term -> do
               doc <- TCP.prettyTCM term
               return $ "Elaborates to:" <+> doc
-      let boundaryDoc
-            | null bndry = []
-            | otherwise  = [ text $ delimiter "Boundary"
-                           , vcat $ map pretty bndry
-                           ]
-      let constraintsDoc
-            | null constraints = []
-            | otherwise        =
-              [ TCP.text $ delimiter "Constraints"
-              , TCP.vcat $ map prettyTCM constraints
-              ]
+      -- let boundaryDoc
+      --       | null bndry = []
+      --       | otherwise  = [ text $ delimiter "Boundary"
+      --                      , vcat $ map pretty bndry
+      --                      ]
+      -- let constraintsDoc
+      --       | null constraints = []
+      --       | otherwise        =
+      --         [
+      --         --   TCP.text $ "[[" ++ "~/screenshot.png" ++ "]]"
+      --         -- ,
+      --           TCP.text $ delimiter "Constraints"
+      --         , TCP.vcat $ map prettyTCM constraints
+      --         ]
       doc <- TCP.vcat $
         [ "Goal:" TCP.<+> return goalDoc
         , return auxDoc
-        , return (vcat boundaryDoc)
+        -- , return (vcat boundaryDoc)
         , TCP.text (replicate 60 '\x2014')
         , return ctxDoc
-        ] ++ constraintsDoc
+        ]
+        -- ++ constraintsDoc
+      visualizeTerm doc
+            
       format (render doc) "*Goal type etc.*"
     Goal_CurrentGoal norm -> do
       doc <- prettyTypeOfMeta norm ii

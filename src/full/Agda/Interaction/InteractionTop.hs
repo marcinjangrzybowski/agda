@@ -29,6 +29,8 @@ import Data.Function (on)
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Data.List.NonEmpty as List1
+
 
 import System.Directory
 import System.FilePath
@@ -48,9 +50,12 @@ import Agda.Syntax.Common
 import Agda.Syntax.Concrete as C
 import Agda.Syntax.Concrete.Glyph
 import Agda.Syntax.Abstract as A
+import qualified Agda.Syntax.Abstract.Views as AV
+import qualified Agda.Syntax.Abstract.Name as AN
 import Agda.Syntax.Abstract.Pretty
 import Agda.Syntax.Info (mkDefInfo)
 import Agda.Syntax.Translation.ConcreteToAbstract
+import qualified Agda.Syntax.Translation.InternalToAbstract as I2A
 import Agda.Syntax.Translation.AbstractToConcrete hiding (withScope)
 import Agda.Syntax.Scope.Base
 import Agda.Syntax.TopLevelModuleName
@@ -475,6 +480,7 @@ updateInteractionPointsAfter Cmd_solveAll{}                      = True
 updateInteractionPointsAfter Cmd_solveOne{}                      = True
 updateInteractionPointsAfter Cmd_infer_toplevel{}                = False
 updateInteractionPointsAfter Cmd_compute_toplevel{}              = False
+updateInteractionPointsAfter Cmd_cubeViz{}                      = False
 updateInteractionPointsAfter Cmd_load_highlighting_info{}        = False
 updateInteractionPointsAfter Cmd_tokenHighlighting{}             = False
 updateInteractionPointsAfter Cmd_highlight{}                     = True
@@ -780,15 +786,185 @@ interpret (Cmd_goal_type_context_infer norm ii rng s) = do
               return (GoalAndHave typ)
   cmd_goal_type_context_and aux norm ii rng s
 
-interpret (Cmd_goal_type_context_check norm ii rng s) = do
-  term <- liftLocalState $ withInteractionId ii $ do
+
+interpret (Cmd_cubeViz s) = do
+  (time, expr) <- parseAndDoAtToplevel action s
+  (time, exprTy) <- parseAndDoAtToplevel (B.typeInCurrentTerm norm) s
+  state <- get
+  -- opts <- lift commandLineOptions
+  -- setCommandLineOpts $
+  --       opts { optPragmaOptions =
+  --              (optPragmaOptions opts) { optShowIrrelevant = True 
+  --                                      , optShowImplicit = True} }
+
+  -- tmTm <- liftLocalState $ do
+    
+  --   goal <- B.typeOfMeta AsIs ii
+  --   term <- case goal of
+  --     OfType _ ty -> checkExpr expr =<< isType_ ty
+  --     _           -> __IMPOSSIBLE__
+  --   nfe <- B.normalFormForCubeViz term
+  --   -- expr' <- I2A.reifyTerm True nfe
+  --   -- term <- case goal of
+  --   --   OfType _ ty -> checkExpr expr' =<< isType_ ty
+  --   --   _           -> __IMPOSSIBLE__
+  --   -- nfe <- B.normalForm norm term
+  --   -- reportSDoc "hcomptest" 2 $ return $ pretty nfe
+  --   return (nfe)
+
+  -- tmTy <- liftLocalState $ do
+    
+  --   goal <- B.typeOfMeta AsIs ii
+  --   term <- case goal of
+  --     OfType _ ty -> checkExpr expr =<< isType_ ty
+  --     _           -> __IMPOSSIBLE__
+  --   nfe <- B.normalFormForCubeViz term
+  --   -- expr' <- I2A.reifyTerm True nfe
+  --   -- term <- case goal of
+  --   --   OfType _ ty -> checkExpr expr' =<< isType_ ty
+  --   --   _           -> __IMPOSSIBLE__
+  --   -- nfe <- B.normalForm norm term
+  --   -- reportSDoc "hcomptest" 2 $ return $ pretty nfe
+  --   return (nfe)
+
+
+  display_info $ Info_Viz (VizData exprTy expr)
+    where
+    cmode = IgnoreAbstract
+    norm = Normalised
+    
+    action = allowNonTerminatingReductions
+           . (if B.computeIgnoreAbstract cmode then ignoreAbstractMode else inConcreteMode)
+           . B.evalInCurrentTerm cmode
+
+    
+           
+-- interpret (Cmd_compute_toplevel cmode s) =
+--   parseAndDoAtToplevel action Info_NormalForm $ computeWrapInput cmode s
+--   where
+--   action = allowNonTerminatingReductions
+--          . (if computeIgnoreAbstract cmode then ignoreAbstractMode else inConcreteMode)
+--          . (B.showComputed cmode <=< B.evalInCurrent)
+
+ --  (time, expr) <- parseForViz
+ --  -- state <- get
+ --  -- display_info $ Info_NormalForm state cmode time expr
+ --  --   where
+ --  --   action = allowNonTerminatingReductions
+ --  --          . (if B.computeIgnoreAbstract cmode then ignoreAbstractMode else inConcreteMode)
+ --  --          . B.evalInCurrent cmode
+
+ --  (term) <- liftLocalState $ withInteractionId ii $ do
+
+
+ --    term <- case goal of
+ --      OfType _ ty -> checkExpr expr =<< isType_ ty
+ --      _           -> __IMPOSSIBLE__
+ --    nfe <- B.normalFormForCubeViz term
+ --    -- expr' <- I2A.reifyTerm True nfe
+ --    -- term <- case goal of
+ --    --   OfType _ ty -> checkExpr expr' =<< isType_ ty
+ --    --   _           -> __IMPOSSIBLE__
+ --    -- nfe <- B.normalForm norm term
+ --    -- reportSDoc "hcomptest" 2 $ return $ pretty nfe
+ --    return (nfe)
+
+ --  display_info $ Info_Viz (VizData undefined term)
+
+ -- where
+ --  parseForViz :: 
+ --     -- ^ The expression to parse.
+ --    CommandM (Maybe CPUTime, a)
+ --  parseForViz = do
+ --   localStateCommandM $ do
+ --    (e, attrs) <- lift $ runPM $ parse exprParser s
+ --    lift $ checkAttributes attrs
+ --    maybeTimed $ atTopLevel $ lift $
+ --      (allowNonTerminatingReductions
+ --         . (ignoreAbstractMode)
+ --         . (prettyATop <=< B.evalInCurrent)) =<< (concreteToAbstract_ e)
+         
+
+    
+ --  -- opts <- lift commandLineOptions
+ --  -- setCommandLineOpts $
+ --  --       opts { optPragmaOptions =
+ --  --              (optPragmaOptions opts) { optShowIrrelevant = True 
+ --  --                                      , optShowImplicit = True} }
+
+ --  -- (term) <- liftLocalState $ withInteractionId ii $ do
+    
+ --  --   expr <- B.parseExprIn ii rng s
+
+ --  --   goal <- B.typeOfMeta AsIs ii
+ --  --   term <- case goal of
+ --  --     OfType _ ty -> checkExpr expr =<< isType_ ty
+ --  --     _           -> __IMPOSSIBLE__
+ --  --   nfe <- B.normalFormForCubeViz term
+
+ --  -- cmd_viz ii rng term s 
+ --  -- -- cmd_goal_type_context_and (GoalAndElaboration term) norm ii rng s
+
+
+-- temp cubeViz
+interpret (Cmd_goal_type_context_check _ ii rng s) = do
+  let norm = Normalised      
+  opts <- lift commandLineOptions
+  setCommandLineOpts $
+        opts { optPragmaOptions =
+               (optPragmaOptions opts) { optShowIrrelevant = True 
+                                       , optShowImplicit = True} }
+
+  (term) <- liftLocalState $ withInteractionId ii $ do
+    
     expr <- B.parseExprIn ii rng s
+
     goal <- B.typeOfMeta AsIs ii
     term <- case goal of
       OfType _ ty -> checkExpr expr =<< isType_ ty
       _           -> __IMPOSSIBLE__
-    B.normalForm norm term
+    nfe <- B.normalFormForCubeViz term
+    -- expr' <- I2A.reifyTerm True nfe
+    -- term <- case goal of
+    --   OfType _ ty -> checkExpr expr' =<< isType_ ty
+    --   _           -> __IMPOSSIBLE__
+    -- nfe <- B.normalForm norm term
+    -- reportSDoc "hcomptest" 2 $ return $ pretty nfe
+    return (nfe)
+
+  -- reportSDoc "hcomptest" 2 $ do
+  --   let l = List.nub $ gatherExtLamPats expr
+  --   l' <- (mapM prettyA l)
+  --   return (vcat l') 
+     
+    -- return $ (vcat $ ("hcomptest: " : map (prettyA)
+    --                                             (List.nub $ gatherExtLamPats expr) ))
+
   cmd_goal_type_context_and (GoalAndElaboration term) norm ii rng s
+
+ -- where
+   
+ --   gatherQNames :: A.Expr -> [AN.QName]
+ --   gatherQNames = AV.foldExpr f
+ --    where
+
+ --    f :: A.Expr -> [AN.QName]
+ --    f (A.Def' qn _) = [qn]
+ --    f _ = []
+
+  
+ --   gatherExtLamPats :: A.Expr -> [A.Pattern]
+ --   gatherExtLamPats = AV.foldExpr f
+ --    where
+
+ --    f :: A.Expr -> [A.Pattern]
+ --    f (A.ExtendedLam _ _ _ _ cls) =
+ --       case (A.lhsCore (A.clauseLHS (List1.head cls))) of
+ --         A.LHSHead _ pts ->
+ --            map (namedArg) pts
+ --         _ -> []
+ --    f _ = []
+
 
 interpret (Cmd_show_module_contents norm ii rng s) =
   liftCommandMT (withInteractionId ii) $ showModuleContents norm rng s
@@ -1082,10 +1258,7 @@ sortInteractionPoints is =
     forM is $ \ i -> do
       (i,) <$> getInteractionRange i
 
--- | Displays the current goal, the given document, and the current
---   context.
---
---   Should not modify the state.
+
 
 cmd_goal_type_context_and :: GoalTypeAux -> Rewrite -> InteractionId -> Range ->
                              String -> CommandM ()

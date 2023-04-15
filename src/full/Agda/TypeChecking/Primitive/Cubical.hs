@@ -19,6 +19,9 @@ import Control.Exception
 
 import Data.String
 
+import qualified Data.Set as Set
+
+
 import Data.Bifunctor ( second )
 import Data.Either ( partitionEithers )
 import Data.IntMap (IntMap)
@@ -90,6 +93,7 @@ primPOr = do
 
 
      _ -> __IMPOSSIBLE__
+
 
 primPartial' :: TCM PrimitiveImpl
 primPartial' = do
@@ -168,6 +172,19 @@ primHComp' = do
           (el' a bA --> el' a bA)
   return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
     primTransHComp DoHComp ts nelims
+
+primHComp'' :: TCM PrimitiveImpl
+primHComp'' = do
+  requireCubical CErased ""
+  t    <- runNamesT [] $
+          hPi' "a" (el $ cl primLevel) $ \ a ->
+          hPi' "A" (sort . tmSort <$> a) $ \ bA ->
+          hPi' "φ" primIntervalType $ \ phi ->
+          nPi' "i" primIntervalType (\ i -> pPi' "o" phi $ \ _ -> el' a bA) -->
+          (el' a bA --> el' a bA)
+  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
+    primTransHComp DoHComp ts nelims
+
 
 -- | Construct a helper for CCHM composition, with a string indicating
 -- what function uses it.
@@ -398,6 +415,7 @@ primTransHComp cmd ts nelims = do
     _ -> __IMPOSSIBLE__
   sphi <- reduceB' phi
   vphi <- intervalView $ unArg $ ignoreBlocking sphi
+  EnvCubeViz isECB _ <- viewTC eEnvCubeViz
   let clP s = getTerm "primTransHComp" s
 
   -- WORK
@@ -421,23 +439,130 @@ primTransHComp cmd ts nelims = do
       fallback' sc = do
         -- Possibly optimise the partial element to reduce the size of
         -- hcomps:
-        u' <- case cmd of
-          DoHComp -> (:[]) <$> case vphi of
+        case (cmd , l , bA) of
+          (DoHComp , IsNot (Arg _ l') , IsNot (Arg _ bA')) -> case (vphi , isECB) of
             -- If φ=i0 then tabulating equality for Partial φ A
             -- guarantees that u = is constantly isOneEmpty,
             -- regardless of how big the original term is, and
             -- isOneEmpty is *tiny*, so let's use that:
-            IZero -> fmap (reduced . notBlocked . argN) . runNamesT [] $ do
+            (IZero , _) -> (fmap (reduced . notBlocked . argN) . runNamesT [] $ do
                 [l,c] <- mapM (open . unArg) [famThing l, ignoreBlocking sc]
-                lam "i" $ \ i -> clP builtinIsOneEmpty <#> l <#> ilam "o" (\ _ -> c)
-
+                lam "i" $ \ i -> clP builtinIsOneEmpty <#> l <#> ilam "o" (\ _ -> c))
+                 >>= (\ u -> pure . NoReduction $ [notReduced (famThing l), reduced sc, reduced sphi] ++ [u] ++ [notReduced u0])
             -- Otherwise we have some interesting formula (though
             -- definitely not IOne!) and we have to keep the partial
             -- element as-is.
-            _ -> pure $ notReduced $ fromMaybe __IMPOSSIBLE__ u
-          DoTransp -> return []
+            (_ , False) -> do
+               let u'' = notReduced $ fromMaybe __IMPOSSIBLE__ u
+               pure . (NoReduction) $
+                 [notReduced (famThing l), reduced sc, reduced sphi] ++ [u''] ++ [notReduced u0]
+            (_ , True) -> do
+               let getTermLocal = getTerm $ "builtinHComp reducing partial"
+               tPOr <- getTermLocal builtinPOr
+               iZ   <- getTermLocal builtinIZero
+               iO   <- getTermLocal builtinIOne
+               let
+                   hh :: ([Term] , [Term]) -> Term -> Term
+                   hh (v0 , v1) = applySubst
+                       (composeS
+                          (foldl (\a (Var k []) -> composeS a (inplaceS k iZ )) idS v0)
+                          (foldl (\a (Var k []) -> composeS a (inplaceS k iO )) idS v1)
+                         )
+               iO1   <- getTermLocal builtinIsOne1
+               isOne1 <- getTermLocal builtinItIsOne
+               vp <- fmap (map (raise 1)) (iView'' vphi)
+               let u' = (raise 2) (unArg $ fromMaybe __IMPOSSIBLE__ u)
+               let
+                   cmb :: [(Term , ([Term] , [Term]))] -> NamesT ReduceM Term
+                   [] = return u'
+                   cmb [_] = return u'
+                   cmb x = 
+                     lam "k" (cmb' x)
 
-        pure . NoReduction $ [notReduced (famThing l), reduced sc, reduced sphi] ++ u' ++ [notReduced u0]
+                    where
+                     cmb' :: [(Term , ([Term] , [Term]))] -> (NamesT ReduceM Term -> NamesT ReduceM Term)
+                     -- cmb' = undefined
+                     cmb' [] k = __IMPOSSIBLE__
+                     cmb' [(_ , s)] k = do
+                       k' <- k
+                       ilam "o" (\o -> do
+                               -- o' <- (pure iO1 <@> (raise 1 <$> i) <@> (raise 1 <$> j) <@> o)
+                               let v = hh ((raise 1) s) (u' `apply` [(defaultArg ((raise 1) k'))])
+                               return $ v `apply` [(Arg (setRelevance Irrelevant defaultArgInfo)
+                                            isOne1)]
+                               -- return (u' `apply` [(defaultArg ((raise 1) k'))
+                               --            , (Arg (setRelevance Irrelevant defaultArgInfo)
+                               --              o')])           
+                              )
+                     cmb' ((x , s) : xs) k = do
+                        k' <- k
+                        let i = (pure x)
+                        let j = foldl (imax) (pure iZ) (map (pure . fst) xs)
+                        pure tPOr <#> (raise 1 <$> pure l') <@> i <@> j
+                          <#> ilam "o" (\ _ -> (raise 2 <$> pure bA'))
+                          <@> ilam "o" (\o -> do
+                               -- o' <- (pure iO1 <@> (raise 1 <$> i) <@> (raise 1 <$> j) <@> o)
+                               let v = hh ((raise 1) s) (u' `apply` [(defaultArg ((raise 1) k'))])
+                               return $ v `apply` [(Arg (setRelevance Irrelevant defaultArgInfo)
+                                            isOne1)]
+                               -- return (u' `apply` [(defaultArg ((raise 1) k'))
+                               --            , (Arg (setRelevance Irrelevant defaultArgInfo)
+                               --              o')])           
+                              )
+                          <@> cmb' xs k
+                   --      -- let u'' = ilam "o" (\i1 -> do
+                   --      --       o' <- (cl primIsOne1 <@> i <@> j <@> i1)
+                   --      --       return (u' `apply`
+                   --      --            [(defaultArg k')
+                   --      --            ,(defaultArg o')])
+                   --                     -- )
+                   --      pure tPOr <#> _ <@> i <@> j
+                   --        <#> _ -- the type
+                   --        <@> _ <@> (cmb' xs k)
+                        
+               u' <- runNamesT [] $ cmb vp
+
+                 
+               let u'' = reduced $ notBlocked $ defaultArg $ u'
+               pure . (NoReduction) $
+                 [notReduced (famThing l), reduced sc, reduced sphi] ++ [u''] ++ [notReduced u0]
+                -- do getTermLocal <- getTerm $ "builtinHComp reducing partial"
+                --    tPOr <- getTermLocal builtinPOr
+                --    vphi' <- iView' vphi
+                --    let vp = map Set.toList (Set.toList vphi')
+
+
+                --        cmb _ = return u
+                --        cmb [_] = return u
+                --        cmb x = lam "k" (cmb' x)
+
+                --         where
+                --          cmb' k [] = __IMPOSSIBLE__
+                --          cmb' k [x] = return (u `apply` k)
+                --          cmb' k ((i , b) : sx) = do
+                --            return $
+                --             apply tPOr []
+
+                --        -- cmb [x] =
+                --        --   lam "k" (\y ->
+                --        --    ilam "o" ->
+                --        --         )
+                --        -- cmb (x : xs) = return  u
+
+
+                --    u' <- cmb vp
+
+                --    reportSLn "hcompReduce" 10 $ 
+                --        (show $ map (show . Set.toList) (Set.toList vphi'))
+                --    reportSDoc "hcompReduce" 10 $ 
+                --        prettyTCM $ u
+                --    return u'
+
+                --   return $ notReduced $ fromMaybe __IMPOSSIBLE__ u'
+          _ -> pure . NoReduction $ [notReduced (famThing l), reduced sc, reduced sphi] ++ [] ++ [notReduced u0]
+          -- return $ [ notReduced $ defaultArg $ u ]
+
+        
 
     -- Reduce the type whose Kan operations we're composing over:
     sbA <- reduceB' bA
@@ -468,6 +593,7 @@ primTransHComp cmd ts nelims = do
 
         -- By cases on the family, determine what Kan operation we defer
         -- to:
+        
         case famThing t of
           -- Metavariables are stuck
           MetaV m _ -> fallback' (fmap famThing $ blocked_ m *> sbA)
@@ -581,6 +707,7 @@ primTransHComp cmd ts nelims = do
         ms <- getTerm' builtinSuc
         return $ \ t -> fromMaybe t (constructorForm' mz ms t)
       su  <- reduceB' u
+         
       sa0 <- reduceB' a0
       view   <- intervalView'
       unview <- intervalUnview'

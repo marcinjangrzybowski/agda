@@ -145,6 +145,11 @@ lam :: MonadFail m
     => ArgName -> (NamesT m Term -> NamesT m Term) -> NamesT m Term
 lam n f = glam defaultArgInfo n f
 
+hlam :: MonadFail m
+    => ArgName -> (NamesT m Term -> NamesT m Term) -> NamesT m Term
+hlam n f = glam (setHiding Hidden defaultArgInfo) n f
+
+
 ilam :: MonadFail m
     => ArgName -> (NamesT m Term -> NamesT m Term) -> NamesT m Term
 ilam n f = glam (setRelevance Irrelevant defaultArgInfo) n f

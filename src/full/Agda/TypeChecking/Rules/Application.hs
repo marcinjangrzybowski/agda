@@ -1830,6 +1830,9 @@ checkPOr c rs vs _ = do
       return $ l : phi1 : phi2 : a : u : v : rest
    _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
 
+checkPRo :: QName -> MaybeRanges -> Args -> Type -> TCM Args
+checkPRo c rs vs _ = undefined
+
 -- | @prim^glue : ∀ {ℓ ℓ'} {A : Set ℓ} {φ : I}
 --              → {T : Partial φ (Set ℓ')} → {e : PartialP φ (λ o → T o ≃ A)}
 --              → (t : PartialP φ T) → (a : A) → primGlue A T e@

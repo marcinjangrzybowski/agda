@@ -19,13 +19,16 @@ module Agda.Syntax.Translation.InternalToAbstract
   , reifyUnblocked
   , blankNotInScope
   , reifyDisplayFormP
+  , reifyTerm
+  , PiDomPart(..)
+  , PiDomPart'(..)
   ) where
 
 import Prelude hiding (null)
 
 import Control.Applicative ( liftA2 )
 import Control.Arrow       ( (&&&) )
-import Control.Monad       ( filterM, forM )
+import Control.Monad       ( filterM, forM , forM_)
 
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -52,6 +55,8 @@ import Agda.Syntax.Internal.Pattern as I
 import Agda.Syntax.Scope.Base (inverseScopeLookupName)
 
 import Agda.TypeChecking.Monad
+import Agda.TypeChecking.Monad.Builtin
+
 import Agda.TypeChecking.Reduce
 import {-# SOURCE #-} Agda.TypeChecking.Records
 import Agda.TypeChecking.CompiledClause (CompiledClauses'(Fail))
@@ -80,6 +85,7 @@ import Agda.Utils.Pretty
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 import Agda.Utils.Tuple
+import Agda.Utils.Suffix
 
 import Agda.Utils.Impossible
 
@@ -453,7 +459,14 @@ reifyTerm ::
    => Bool           -- ^ Try to expand away anonymous definitions?
    -> Term
    -> m Expr
-reifyTerm expandAnonDefs0 v0 = tryReifyAsLetBinding v0 $ do
+reifyTerm = reifyTerm' (False , 0) Nothing
+
+reifyTerm' ::
+      MonadReify m
+   => (Bool , Int) -> Maybe (Sort' Term) -> Bool           -- ^ Try to expand away anonymous definitions?
+   -> Term
+   -> m Expr
+reifyTerm' (paAsPi , papK) mbSrt expandAnonDefs0 v0 = tryReifyAsLetBinding v0 $ do
   -- Jesper 2018-11-02: If 'PrintMetasBare', drop all meta eliminations.
   metasBare <- asksTC envPrintMetasBare
   reportSDoc "reify.term" 80 $ pure $ "reifyTerm v0 = " <+> pretty v0
@@ -479,10 +492,34 @@ reifyTerm expandAnonDefs0 v0 = tryReifyAsLetBinding v0 $ do
     I.Var n es -> do
       x <- fromMaybeM (freshName_ $ "@" ++ show n) $ nameOfBV' n
       elims (A.Var x) =<< reify es
-    I.Def x es -> do
-      reportSDoc "reify.def" 80 $ return $ "reifying def" <+> pretty x
-      (x, es) <- reifyPathPConstAsPath x es
-      reifyDisplayForm x es $ reifyDef expandAnonDefs x es
+    
+    t@(I.Def x es) -> do
+      -- EnvCubeViz _ pathsToPis <- viewTC eEnvCubeViz
+      let fb = do
+           reportSDoc "reify.def" 80 $ return $ "reifying def" <+> pretty x
+           (x, es) <- reifyPathPConstAsPath x es      
+           reifyDisplayForm x es $ reifyDef expandAnonDefs x es
+
+      case (paAsPi , mbSrt) of
+
+          (True , Just s) -> do
+             pv <- pathView (El s t)
+             case pv of
+               PathType s n l (Arg aTy ty) lhs rhs -> do
+                 bI <- (`I.Def` []) . fromMaybe __IMPOSSIBLE__ <$>
+                          getBuiltinName' builtinInterval
+                 let absNa = addSuffix "𝑰" (Subscript (fromIntegral papK))
+                 (reify $ (PiDomPart' paAsPi (papK + 1) ((El s (I.Pi
+                           (defaultNamedArgDom
+                             defaultArgInfo
+                             absNa 
+                             (El intervalSort bI)
+                           )
+                           (Abs absNa (El s (((raise 1) ty) `apply`
+                                             ([defaultArg
+                                                (I.Var 0 [])] )))))))))
+               _ -> fb
+          (_ , _) -> fb            
     I.Con c ci vs -> do
       let x = conName c
       isR <- isGeneratedRecordConstructor x
@@ -552,7 +589,7 @@ reifyTerm expandAnonDefs0 v0 = tryReifyAsLetBinding v0 $ do
     I.Level l      -> reify l
     I.Pi a b       -> case b of
         NoAbs _ b'
-          | visible a, not (domIsFinite a) -> uncurry (A.Fun $ noExprInfo) <$> reify (a, b')
+          | visible a, not (domIsFinite a) -> uncurry (A.Fun $ noExprInfo) <$> reify (a, (PiDomPart' paAsPi papK b'))
             -- Andreas, 2013-11-11 Hidden/Instance I.Pi must be A.Pi
             -- since (a) the syntax {A} -> B or {{A}} -> B is not legal
             -- and (b) the name of the binder might matter.
@@ -569,7 +606,7 @@ reifyTerm expandAnonDefs0 v0 = tryReifyAsLetBinding v0 $ do
       where
         mkPi b (Arg info a') = do
           tac <- traverse reify $ domTactic a
-          (x, b) <- reify b
+          (x, b) <- reify (PiDomPart paAsPi papK b)
           let xs = singleton $ Arg info $ Named (domName a) $ mkBinder_ x
           return $ A.Pi noExprInfo
             (singleton $ TBind noRange (TypedBindingInfo tac (domIsFinite a)) xs a')
@@ -827,6 +864,12 @@ reifyTerm expandAnonDefs0 v0 = tryReifyAsLetBinding v0 $ do
       -> I.Elims -> m Expr
     reifyExtLam x ai npars msys cls es = do
       reportSLn "reify.def" 10 $ "reifying extended lambda " ++ prettyShow x
+      case msys of
+        Just s ->
+           forM_  (systemClauses s)
+              (\(_ , x) -> reportSLn "reify.def" 10 $ "reifying extended lambda " ++ prettyShow x)
+        Nothing -> return ()
+      -- reportSLn "reify.def" 10 $ "rel system: " ++ prettyShow msys
       reportSLn "reify.def" 50 $ render $ nest 2 $ vcat
         [ "npars =" <+> pretty npars
         , "es    =" <+> fsep (map (prettyPrec 10) es)
@@ -839,6 +882,7 @@ reifyTerm expandAnonDefs0 v0 = tryReifyAsLetBinding v0 $ do
       -- Since we applying the clauses to the parameters,
       -- we do not need to drop their initial "parameter" patterns
       -- (this is taken care of by @apply@).
+      _ <- forM cls (\x -> reportSLn "reify.def" 10 $ "reifying extended lambda " ++ prettyShow x)
       cls <- caseMaybe msys
                (mapM (reify . NamedClause x False . (`apply` pars)) cls)
                (reify . QNamed x . (`apply` pars))
@@ -1372,7 +1416,7 @@ instance Reify (QNamed System) where
   type ReifiesTo (QNamed System) = [A.Clause]
 
   reify (QNamed f (System tel sys)) = addContext tel $ do
-    reportS "reify.system" 40 $ show tel : map show sys
+    reportS "reify.system" 40 $ ["reify system :"] ++ (show tel : map show sys)
     view <- intervalView'
     unview <- intervalUnview'
     sys <- flip filterM sys $ \ (phi,t) -> do
@@ -1382,7 +1426,9 @@ instance Reify (QNamed System) where
           (IZero, True) -> False
           (IOne, False) -> False
           _ -> True
+    -- sys <- 
     forM sys $ \ (alpha,u) -> do
+      u <- normalise u
       rhs <- RHS <$> reify u <*> pure Nothing
       ep <- fmap (A.EqualP patNoRange) . forM alpha $ \ (phi,b) -> do
         let
@@ -1397,11 +1443,13 @@ instance Reify (QNamed System) where
         result = A.Clause (spineToLhs lhs) [] rhs A.noWhereDecls False
       return result
 
+
+
 instance Reify I.Type where
     type ReifiesTo I.Type = A.Type
 
     reifyWhen = reifyWhenE
-    reify (I.El _ t) = reify t
+    reify (I.El s t) = reifyTerm' (False , 0) (Just s) True t
 
 instance Reify Sort where
     type ReifiesTo Sort = Expr
@@ -1479,6 +1527,38 @@ instance (Free i, Reify i) => Reify (Abs i) where
     e <- addContext x -- type doesn't matter
          $ reify v
     return (x,e)
+
+data PiDomPart = PiDomPart Bool Int (Abs I.Type)
+
+data PiDomPart' = PiDomPart' Bool Int (I.Type)
+
+instance Reify PiDomPart where
+  type ReifiesTo PiDomPart = (Name, A.Type)
+
+    -- reify (I.El s t) = reifyTerm' False (Just s) True t
+
+
+  reify (PiDomPart b k (NoAbs x (I.El s t))) =
+     freshName_ x >>= \name -> (name,) <$> reifyTerm' (b , k) (Just s) True  t
+  reify (PiDomPart b k (Abs s v@(I.El s' t))) = do
+
+    -- If the bound variable is free in the body, then the name "_" is
+    -- replaced by "z".
+    s <- return $ if isUnderscore s && 0 `freeIn` v then "z" else s
+
+    x <- C.setNotInScope <$> freshName_ s
+    e <- addContext x -- type doesn't matter
+         $ reifyTerm' (b , k) (Just s') True  t
+    return (x,e)
+
+instance Reify PiDomPart' where
+  type ReifiesTo PiDomPart' = A.Type
+
+    -- reify (I.El s t) = reifyTerm' False (Just s) True t
+
+
+  reify (PiDomPart' b k (I.El s t)) =
+     reifyTerm' (b , k) (Just s) True t
 
 instance Reify I.Telescope where
   type ReifiesTo I.Telescope = A.Telescope

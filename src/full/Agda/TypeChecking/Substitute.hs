@@ -506,6 +506,14 @@ instance Apply System where
       -- newTel ⊢ σ : tel
       sigma = liftS (ntel - nargs) (parallelS (reverse $ map unArg args))
 
+      -- newSys = do
+      --   (sfc , tm) <- sys
+      --   sfc' <- do
+      --      (ft , b) <- sfc
+      --      case f ft of
+             
+      --   return (sfc , f tm)         
+
   applyE t es = apply t $ fromMaybe __IMPOSSIBLE__ $ allApplyElims es
 
 instance Apply a => Apply (WithArity a) where

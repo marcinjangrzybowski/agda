@@ -840,6 +840,8 @@ instance Pretty CheckpointId where
 instance HasFresh CheckpointId where
   freshLens = stFreshCheckpointId
 
+
+
 freshName :: MonadFresh NameId m => Range -> String -> m Name
 freshName r s = do
   i <- fresh
@@ -2851,6 +2853,23 @@ instance Pretty Projection where
       , "projLams     =" <?> pretty projLams
       ]
 
+instance Pretty System where
+  pretty System{..} =
+      "System {" <?> vcat
+      [ "systemTel   =" <?> pretty systemTel
+      , "systemClauses    =" <?> pretty systemClauses
+      ]
+
+
+  --   System = System
+  -- { systemTel :: Telescope
+  --   -- ^ the telescope Δ, binding vars for the clauses, Γ ⊢ Δ
+  -- , systemClauses :: [(Face,Term)]
+  --   -- ^ a system [φ₁ u₁, ... , φₙ uₙ] where Γ, Δ ⊢ φᵢ and Γ, Δ, φᵢ ⊢ uᵢ
+  -- } deriving (Show, Generic)
+
+
+
 instance Pretty c => Pretty (FunctionInverse' c) where
   pretty NotInjective = "NotInjective"
   pretty (Inverse inv) = "Inverse" <?>
@@ -3410,6 +3429,12 @@ ifTopLevelAndHighlightingLevelIs l =
 -- * Type checking environment
 ---------------------------------------------------------------------------
 
+data EnvCubeViz =
+  EnvCubeViz { ecvEnabled :: Bool
+             , ecvReifyPathsAsPi :: Bool
+             }
+   deriving (Show, Eq, Generic)
+
 data TCEnv =
     TCEnv { envContext             :: Context
           , envLetBindings         :: LetBindings
@@ -3560,6 +3585,7 @@ data TCEnv =
                 -- the counter is decreased in the failure
                 -- continuation of
                 -- 'Agda.TypeChecking.SyntacticEquality.checkSyntacticEquality'.
+          , envCubeViz :: EnvCubeViz
           }
     deriving (Generic)
 
@@ -3624,6 +3650,7 @@ initEnv = TCEnv { envContext             = []
                 , envConflComputingOverlap  = False
                 , envCurrentlyElaborating   = False
                 , envSyntacticEqualityFuel  = Strict.Nothing
+                , envCubeViz               = EnvCubeViz True False
                 }
 
 class LensTCEnv a where
@@ -3651,6 +3678,9 @@ eUnquoteNormalise = eUnquoteFlags . unquoteNormalise
 
 eContext :: Lens' Context TCEnv
 eContext f e = f (envContext e) <&> \ x -> e { envContext = x }
+
+eEnvCubeViz :: Lens' EnvCubeViz TCEnv
+eEnvCubeViz f e = f (envCubeViz e) <&> \ x -> e { envCubeViz = x }
 
 eLetBindings :: Lens' LetBindings TCEnv
 eLetBindings f e = f (envLetBindings e) <&> \ x -> e { envLetBindings = x }
@@ -5498,6 +5528,7 @@ instance NFData pf => NFData (Builtin pf)
 instance NFData HighlightingLevel
 instance NFData HighlightingMethod
 instance NFData TCEnv
+instance NFData EnvCubeViz
 instance NFData LetBinding
 instance NFData UnquoteFlags
 instance NFData AbstractMode

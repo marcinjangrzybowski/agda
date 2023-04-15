@@ -246,6 +246,7 @@ constituents.")
     (agda2-search-about-toplevel             ,(kbd "C-c C-z")     (local global) "Search About")
     (agda2-module-contents-maybe-toplevel    ,(kbd "C-c C-o")     (local global) "Module contents")
     (agda2-compute-normalised-maybe-toplevel "\C-c\C-n"           (local global) "Evaluate term to normal form")
+    (agda2-visualize-normalised-maybe-toplevel "\C-c\C-v"           (local global) "Visualize term")
     (describe-char                           nil                  (global)       "Information about the character at point")
     (agda2-comment-dwim-rest-of-buffer       ,(kbd "C-c C-x M-;") (global)       "Comment/uncomment the rest of the buffer")
     (agda2-display-program-version           nil                  (global)       "Version")
@@ -1461,6 +1462,23 @@ computation."
     (agda2-go nil t 'busy t
               (concat cmd (agda2-string-quote expr)))))
 
+(defun agda2-visualize-normalised-toplevel (expr &optional arg)
+  "Compute the normal form of the given expression.
+The scope used for the expression is that of the last point
+inside the current top-level module.
+
+With a prefix argument distinct from `(4)' the normal form of
+\"show <expression>\" is computed, and then the resulting string
+is printed.
+
+With the prefix argument `(4)' \"abstract\" is ignored during the
+computation."
+  (interactive "MExpression: \nP")
+  (let ((cmd (concat "Cmd_cubeViz" " ")))
+    (agda2-go nil t 'busy t
+              (concat cmd (agda2-string-quote expr)))))
+
+
 (defun agda2-compute-normalised-maybe-toplevel ()
   "Compute the normal form of the given expression.
 The scope used for the expression is that of the last point
@@ -1476,6 +1494,25 @@ computation."
   (if (agda2-goal-at (point))
       (call-interactively 'agda2-compute-normalised)
     (call-interactively 'agda2-compute-normalised-toplevel)))
+
+(defun agda2-visualize-normalised-maybe-toplevel ()
+  "Compute the normal form of the given expression.
+The scope used for the expression is that of the last point
+inside the current top-level module.
+
+With a prefix argument distinct from `(4)' the normal form of
+\"show <expression>\" is computed, and then the resulting string
+is printed.
+
+With the prefix argument `(4)' \"abstract\" is ignored during the
+computation."
+  (interactive)
+  (call-interactively 'agda2-visualize-normalised-toplevel)
+  ;; (if (agda2-goal-at (point))
+  ;;     (call-interactively 'agda2-compute-normalised)
+  ;;   (call-interactively 'agda2-compute-normalised-toplevel))
+  )
+
 
 (defun agda2-display-program-version ()
   "Display version of Agda"

@@ -17,6 +17,7 @@ import Control.Monad.Writer
 
 import Data.Function ( on )
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Agda.Syntax.Common
@@ -28,6 +29,8 @@ import Agda.Interaction.Options.Base (PragmaOptions(..))
 import Agda.TypeChecking.Monad.Base
 -- import Agda.TypeChecking.Functions  -- LEADS TO IMPORT CYCLE
 import Agda.TypeChecking.Substitute
+
+-- import Data.Foldable (all)
 
 import Agda.Utils.Functor
 import Agda.Utils.ListT
@@ -607,6 +610,103 @@ intervalUnview' = do
              INeg x   -> apply ineg [x]
              OTerm t -> t
 
+
+
+
+makeAntiH :: Ord a => Set.Set (Set.Set a) -> Set.Set (Set.Set a)
+makeAntiH y = Set.filter (\x -> not (any (`Set.isProperSubsetOf` x) y)) y
+
+unsafeMin :: (Set.Set ( Set.Set (Int , Bool))) -> (Set.Set ( Set.Set (Int , Bool)))
+          -> (Set.Set ( Set.Set (Int , Bool)))
+unsafeMin e1 e2 =  (makeAntiH $ Set.map (uncurry $ Set.union) $ Set.cartesianProduct e1 e2) 
+
+unsafeMax :: (Set.Set ( Set.Set (Int , Bool))) -> (Set.Set ( Set.Set (Int , Bool)))
+          -> (Set.Set ( Set.Set (Int , Bool)))
+unsafeMax e1 e2 =
+  let y1 = Set.filter (\x -> not (any (flip Set.isSubsetOf x) e2)) e1
+      y2 = Set.filter (\x -> not (any (flip Set.isProperSubsetOf x) e1)) y1
+
+  in (Set.union e1 e2)
+
+
+unsafeNeg :: (Set.Set ( Set.Set (Int , Bool))) -> (Set.Set ( Set.Set (Int , Bool)))
+unsafeNeg x = 
+  (case Set.maxView x of
+    Nothing -> Set.singleton (Set.empty)
+    Just (y , z) ->
+      case (Set.maxView y , Set.maxView z) of
+        (Nothing , Nothing) ->  Set.empty
+        (Just _ , Nothing) -> Set.map (Set.singleton . (\(x , y) -> (x , not y))) y  
+        (Nothing , Just _) -> unsafeNeg z
+        (Just _ , Just _) ->
+           foldr unsafeMin ((unsafeNeg . Set.singleton) y) $ Set.map (unsafeNeg . Set.singleton) z)
+
+
+
+iView' :: HasBuiltins m => IntervalView -> m (Set.Set ( Set.Set (Int , Bool)))
+iView' = fmap (Set.filter (\s ->
+               all (\(x , b) -> not (Set.member (x , not b) s))
+                 (Set.toList s)
+                          )) .
+    (\case
+  IZero -> return $ Set.empty
+  IOne -> return $ Set.singleton (Set.empty)
+  IMin t t' -> do 
+     q <-  (intervalView (unArg t)) >>= iView'
+     q' <- (intervalView (unArg t')) >>= iView'
+     return (unsafeMin q q') 
+  IMax t t' -> do
+     q <-  (intervalView (unArg t)) >>= iView'
+     q' <- (intervalView (unArg t')) >>= iView'
+     return (unsafeMax q q') 
+  INeg t -> do
+     q <-  (intervalView (unArg t)) >>= iView'
+     return (unsafeNeg q)
+  OTerm (Var k []) -> return $ Set.singleton (Set.singleton (k , True))
+  OTerm _ -> __IMPOSSIBLE__)
+
+
+iUnView' :: HasBuiltins m => (Set.Set ( Set.Set (Int , Bool))) -> m IntervalView
+iUnView' =
+    w . (map Set.toList) . Set.toList
+ where
+  w :: HasBuiltins m => [[(Int , Bool)]] -> m IntervalView
+  w [] = return IZero
+  w [[]] = return IOne
+  w [[(k , True)]] = return (OTerm (Var k []))
+  w [[(k , False)]] = return (INeg (defaultArg (Var k [])))
+  w [(x : xs)] = do
+   x' <- w [[x]] >>= intervalUnview
+   xs' <- w [xs] >>= intervalUnview
+   return (IMin (defaultArg x') (defaultArg xs'))
+  w (x : xs) = do
+   x' <- w [x] >>= intervalUnview
+   xs' <- w xs >>= intervalUnview
+   return (IMax (defaultArg x') (defaultArg xs'))
+
+iView'' :: HasBuiltins m => IntervalView -> m [(Term , ([Term] , [Term]))]
+iView'' x = do
+  iv <- iView' x
+  mapM (\y -> do
+    y' <- iUnView' (Set.singleton y)
+    t <- intervalUnview y'
+    -- let s = foldl (\a (k , b) -> composeS a (inplaceS k (ib b) )) idS (Set.toList y)
+    let
+       v0 = map (\(x , _) -> Var x [] )  (filter (not . snd) (Set.toList y))
+       v1 = map (\(x , _) -> Var x [] )  (filter (snd) (Set.toList y))
+    return (t , (v0 , v1))
+         
+           ) (Set.toList iv)
+  
+
+
+iReduce :: HasBuiltins m => Term -> m Term
+iReduce x = do
+  x' <- intervalView x
+  x'' <- iView' x'
+  x''' <- iUnView' x''
+  intervalUnview x'''
+        
 ------------------------------------------------------------------------
 -- * Path equality
 ------------------------------------------------------------------------
@@ -633,6 +733,25 @@ pathView' = do
     Def path' [ Apply level , Apply typ , Apply lhs , Apply rhs ]
       | Just path' == mpathp, Just path <- mpathp -> PathType s path level typ lhs rhs
     _ -> OType t0
+
+
+-- pathViewTm :: HasBuiltins m => Term -> m (PathView' Term)
+-- pathViewTm t0 = do
+--   view <- pathView'Tm
+--   return $ view t0
+
+-- pathView'Tm :: HasBuiltins m => m (Term -> PathView' Term)
+-- pathView'Tm = do
+--  mpath  <- getBuiltinName' builtinPath
+--  mpathp <- getBuiltinName' builtinPathP
+--  return $ \case 
+--     Def path' [ Apply level , Apply typ , Apply lhs , Apply rhs ]
+--       | Just path' == mpath, Just path <- mpathp -> PathType s path level (lam_i <$> typ) lhs rhs
+--       where lam_i = Lam defaultArgInfo . NoAbs "_"
+--     Def path' [ Apply level , Apply typ , Apply lhs , Apply rhs ]
+--       | Just path' == mpathp, Just path <- mpathp -> PathType s path level typ lhs rhs
+--     t -> OType t
+
 
 -- | Non dependent Path
 idViewAsPath :: HasBuiltins m => Type -> m PathView

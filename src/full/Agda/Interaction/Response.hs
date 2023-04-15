@@ -16,6 +16,7 @@ module Agda.Interaction.Response
   , Status (..)
   , GiveResult (..)
   , InteractionOutputCallback
+  , VizData (..)
   , defaultInteractionOutputCallback
   ) where
 
@@ -114,6 +115,9 @@ data DisplayInfo
     | Info_Context InteractionId [ResponseContextEntry]
     | Info_Version
     | Info_GoalSpecific InteractionId GoalDisplayInfo
+    | Info_Viz VizData 
+
+data VizData = VizData I.Type I.Term
 
 data GoalDisplayInfo
     = Goal_HelperFunction (OutputConstraint' A.Expr A.Expr)

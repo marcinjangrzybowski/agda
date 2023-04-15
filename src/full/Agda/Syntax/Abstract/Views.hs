@@ -11,19 +11,23 @@ import Data.Foldable (foldMap)
 import qualified Data.DList as DL
 import Data.Semigroup ((<>))
 import Data.Void
+import Data.Maybe
 
 import Agda.Syntax.Common
 import Agda.Syntax.Abstract as A
+-- import Agda.Syntax.Name as AN
 import Agda.Syntax.Concrete (FieldAssignment', exprFieldA)
 import Agda.Syntax.Info
 import Agda.Syntax.Scope.Base (KindOfName(..), conKindOfName, WithKind(..))
 
 import Agda.Utils.Either
-import Agda.Utils.List1 (List1)
+import Agda.Utils.List1 (List1 , NonEmpty(..))
+import qualified Agda.Utils.List1 as L1
 import Agda.Utils.Null
 import Agda.Utils.Singleton
 
 import Agda.Utils.Impossible
+import Agda.Utils.Pretty
 
 
 data AppView' arg = Application Expr [NamedArg arg]
@@ -627,3 +631,109 @@ instance DeclaredNames RHS where
 -- instance DeclaredNames ModuleApplication where
 --   declaredNames (SectionApp bindss _ es) = declaredNames bindss <> declaredNames es
 --   declaredNames RecordModuleInstance{}   = mempty
+
+-- flattenCub :: Expr -> Expr
+-- flattenCub = mapExpr (\x -> f x (appView x))
+--  where
+
+--  hcompCVpa :: Expr
+--  hcompCVpa = undefined
+--   --  Def' n Prime
+--   -- where
+--   --  n = 
+
+--    -- Cubical.Foundations.Prelude.hcompCV≡
+   
+--  appPaHC :: Expr -> Expr -> Expr -> Expr -> Expr -> Expr -> Expr  
+--  appPaHC e0 lv ty phi sides cap =
+--   case (appView ty) of
+--    (Application (Def' qn _) [lv' , ty' , x , y])
+--      -> if not (pretty qn == "Agda.Builtin.Cubical.Path._≡_")
+--         then e0
+--         else unAppView $
+--               Application
+--               hcompCVpa
+--               [
+            
+--    _ -> e0
+
+--  isHC :: QName -> Bool
+--  isHC qn = pretty qn == "Agda.Primitive.Cubical.primHComp"
+
+--  -- isEq :: AppView -> Bool
+--  -- isEq (Application (Def' qn _) [lv , ty , phi , sides , cap]) =
+--  --       pretty qn == "Agda.Builtin.Cubical.Path._≡_"
+--  -- isEq _ False
+--    -- 
+--  f :: Expr -> AppView -> Expr
+--  f e0 (Application (Def' qn _) [lv , ty , phi , sides , cap]) | isHC qn =
+--    appPaHC e0
+--      (namedArg lv)
+--      (namedArg ty)
+--      (namedArg phi)
+--      (namedArg sides)
+--      (namedArg cap)
+--  f e0 _ = e0
+
+-- Agda.Primitive.Cubical.primHComp
+ 
+   -- case e0 of
+   --    App ei e arg -> App ei <$> recurse e <*> recurse arg
+   --    WithApp ei e es            -> WithApp ei <$> recurse e <*> recurse es
+   --    Lam ei b e                 -> Lam ei <$> recurse b <*> recurse e
+   --    AbsurdLam{}                -> pure e0
+   --    ExtendedLam ei di er x cls -> ExtendedLam ei di er x <$> recurse cls
+   --    Pi ei tel e                -> Pi ei <$> recurse tel <*> recurse e
+   --    Generalized  s e           -> Generalized s <$> recurse e
+   --    Fun ei arg e               -> Fun ei <$> recurse arg <*> recurse e
+   --    Let ei bs e                -> Let ei <$> recurse bs <*> recurse e
+   --    Rec ei bs                  -> Rec ei <$> recurse bs
+   --    RecUpdate ei e bs          -> RecUpdate ei <$> recurse e <*> recurse bs
+   --    ScopedExpr sc e            -> ScopedExpr sc <$> recurse e
+   --    Quote{}                    -> pure e0
+   --    QuoteTerm{}                -> pure e0
+   --    Unquote{}                  -> pure e0
+   --    DontCare e                 -> DontCare <$> recurse e
+   --    PatternSyn{}               -> pure e0
+   --    Macro{}                    -> pure e0
+
+
+
+-- unAbsPi :: (PiView , Expr) -> (Telescope , Type , Expr) 
+-- unAbsPi (PiView [] t , e) = ([] , t , e)
+-- unAbsPi (PiView ((_ , x :| []) : xs) t , e) = 
+-- unAbsPi (PiView ((_ , x :| (y : xy)) : xs) t , e) = undefined
+
+-- PiView [(ExprInfo, Telescope1)] Type
+
+-- fllattenPiView :: PiView -> Telescope
+-- fllattenPiView (PiView tel _) = L1.concat (map snd tel)
+
+-- unAbsPi :: (Type , Expr) -> Telescope -> (Type , Expr) 
+-- unAbsPi = foldl
+--  (\(eTy , e) (TBind _ tbi ((Arg _ (Named (Just nm) (Binder Nothing _))) :| []) ty) ->
+--     undefined)
+-- -- unAbsPi ([] , t , e) = ([] , t , e)
+-- -- unAbsPi ((x : xs) , t , e) = 
+
+argsFromTele :: Telescope1 -> [(NamedArg Type)] 
+argsFromTele tel = do
+ TBind _ tbi l1 ty <- L1.toList tel
+ (Arg ai (Named mbNm _)) <- L1.toList l1
+ return (Arg ai (Named mbNm ty))
+ 
+ 
+  -- [ Named n
+  -- | TBind _ _ ((Arg _ (Named n (Binder Nothing _))) ty
+  --     <- L1.concat (map snd tel)]
+
+funOrPiTypeArgs :: Type -> ([(NamedArg Type)] , Type)
+funOrPiTypeArgs = \case
+    Pi  _ tl cdT ->
+      let (args , t) = funOrPiTypeArgs cdT
+      in ((argsFromTele tl ++ args) , t)
+    -- Generalized _ _ -> undefined    
+    Fun  _ (Arg ai dT) cdT ->
+      let (args , t) = funOrPiTypeArgs cdT
+      in ((Arg ai (Named Nothing dT) : args) , t)
+    t -> ([] , t) 

@@ -94,6 +94,8 @@ import Agda.Utils.Impossible
 import qualified Agda.Utils.SmallSet as SmallSet
 import Agda.TypeChecking.ProjectionLike (reduceProjectionLike)
 
+import qualified Agda.Interaction.Options.Lenses as Lens
+
 -- | Parses an expression.
 
 parseExpr :: Range -> String -> TCM C.Expr
@@ -342,6 +344,13 @@ evalInCurrent cmode e = do
   where compute | cmode == HeadCompute = reduce
                 | otherwise            = normalise
 
+evalInCurrentTerm :: ComputeMode -> Expr -> TCM I.Term
+evalInCurrentTerm cmode e = do
+  (v, _t) <- inferExpr e
+  compute v
+  where compute | cmode == HeadCompute = reduce
+                | otherwise            = normalise
+
 
 evalInMeta :: InteractionId -> ComputeMode -> Expr -> TCM Expr
 evalInMeta ii cmode e =
@@ -360,6 +369,25 @@ normalForm = \case
   HeadNormal   -> reduce        --        time we get to reification. Hence instantiate here.
   Simplified   -> simplify
   Normalised   -> normalise
+
+
+
+runForCubeViz :: TCM t -> TCM t
+runForCubeViz =
+  locallyTCState Lens.lensPragmaOptions
+    (\opts -> opts  { optShowIrrelevant = True 
+                    , optShowImplicit = True})
+    -- (\_ -> EnvCubeViz _ _) 
+
+
+normalFormForCubeViz :: (Reduce t, Simplify t, Instantiate t, Normalise t) => t -> TCM t
+normalFormForCubeViz t =
+  locallyTCState Lens.lensPragmaOptions
+    (\opts -> opts  { optShowIrrelevant = True 
+                    , optShowImplicit = True})
+    (normalise t)
+    -- (\_ -> EnvCubeViz _ _) 
+
 
 -- | Modifier for the interactive computation command,
 --   specifying the mode of computation and result display.
@@ -1066,6 +1094,11 @@ typeInCurrent norm e =
         v <- normalForm norm t
         reifyUnblocked v
 
+typeInCurrentTerm :: Rewrite -> Expr -> TCM I.Type
+typeInCurrentTerm norm e =
+    do  (_,t) <- wakeIrrelevantVars $ inferExpr e
+        normalForm norm t
+        
 
 
 typeInMeta :: InteractionId -> Rewrite -> Expr -> TCM Expr
