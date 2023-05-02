@@ -247,7 +247,7 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
          --    , prettyExpr e
             
          --    ]
-     visualizeTerm doc
+     -- visualizeTerm doc
      format (render doc) "*value and type for viz*"
       -- exprDoc <- evalStateT prettyExpr state
       -- let doc = maybe empty prettyTimed time $$ exprDoc

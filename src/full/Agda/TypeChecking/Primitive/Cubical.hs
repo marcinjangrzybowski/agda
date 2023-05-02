@@ -475,7 +475,7 @@ primTransHComp cmd ts nelims = do
                let
                    cmb :: [(Term , ([Term] , [Term]))] -> NamesT ReduceM Term
                    [] = return u'
-                   cmb [_] = return u'
+                   -- cmb [_] = return u'
                    cmb x = 
                      lam "k" (cmb' x)
 
