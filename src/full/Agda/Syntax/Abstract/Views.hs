@@ -13,6 +13,10 @@ import Data.Semigroup ((<>))
 import Data.Void
 import Data.Maybe
 
+import qualified Data.Map as Map
+
+import Data.Monoid
+
 import Agda.Syntax.Common
 import Agda.Syntax.Abstract as A
 -- import Agda.Syntax.Name as AN
@@ -737,3 +741,387 @@ funOrPiTypeArgs = \case
       let (args , t) = funOrPiTypeArgs cdT
       in ((Arg ai (Named Nothing dT) : args) , t)
     t -> ([] , t) 
+
+
+-- THIS WORKS ONLY FOR REIFIED EXPRS! in specyfic form
+collectCells :: Expr -> [Expr]
+collectCells = foldExpr $ \e -> f e (appView e)
+
+  where
+  isHC :: QName -> Bool
+  isHC qn = pretty qn == "Agda.Primitive.Cubical.primHComp"
+
+  isPP :: QName -> Bool
+  isPP qn = pretty qn == "Agda.Primitive.Cubical.primPOr"
+
+    
+  f :: Expr -> AppView -> [Expr]
+  f e0 (Application (Def' qn _) [lv , ty , phi , (Arg _ (Named _ (Lam _ _ si))) , cap]) | isHC qn =
+         foldPP si (appView si)                                             
+  f _ _ = []
+
+
+  foldPP :: Expr -> AppView -> [Expr]
+  foldPP _ (Application (Def' qn _) [_ , _ , _ , _ , (Arg _ (Named _ (Lam _ _ e))) , ne']) | isPP qn =
+    let e' = namedArg ne' 
+    in e : (foldPP e' (appView e'))          
+                                    
+  foldPP (Lam _ _ e0) _ = [e0]
+  foldPP _ _ = __IMPOSSIBLE__
+
+
+
+-- THIS WORKS ONLY FOR REIFIED EXPRS! in specyfic form
+
+collectConstraints :: Expr -> Map.Map Name Bool
+collectConstraints =
+    Map.fromList . fixNegs . (foldExpr $ \e -> f e (appView e))
+
+  where
+  fixNegs :: [(Name , Bool)] -> [(Name , Bool)]
+  fixNegs x = x
+    
+  isINeg :: QName -> Bool
+  isINeg qn = pretty qn == "Agda.Primitive.Cubical.builtinINeg"
+
+    
+  f :: Expr -> AppView -> [(Name,Bool)]
+  f e0 (Application (Def' qn _) [(Arg _ (Named _ ((Var n))))]) | isINeg qn =
+    [(n,False)]                                                  
+  f (Var n) _ = [(n,True)]
+  f _ _ = []
+
+
+type CubTele = [(NamedArg Type, LamBinding)] 
+
+type CubTelePa = [(NamedArg Type, (LamBinding , Bool))] 
+
+
+type CubTele' = [(Bool, LamBinding , Maybe Bool)] 
+
+type CubTele2CV = [(Bool, Maybe Bool)] 
+
+
+isIntervalCrude :: Type -> Bool 
+isIntervalCrude (Def' qn _) = pretty qn == "Agda.Primitive.Cubical.I"
+isIntervalCrude _ = False 
+
+
+cubTeleHlpr :: CubTelePa -> CubTele2CV
+cubTeleHlpr = map (\(x , _) -> (isInterval (namedArg x) , Nothing))
+
+ where
+
+  isInterval :: Type -> Bool 
+  isInterval (Def' qn _) = pretty qn == "Agda.Primitive.Cubical.I"
+  isInterval _ = False 
+
+
+-- isIntervalTest :: CubTele -> [Bool]
+-- isIntervalTest =  (map (\(x , y) -> (isInterval (namedArg x))))
+--  where
+
+--   isInterval :: Type -> Bool 
+--   isInterval (Def' qn _) = pretty qn == "Agda.Primitive.Cubical.I"
+--   isInterval _ = False 
+
+  
+traverseCells :: (Int -> Expr) -> CubTele -> Expr -> Expr
+traverseCells exprsH = g' . (map (\(x , y) -> (isInterval (namedArg x) , y , Nothing)))
+
+ where
+
+  isInterval :: Type -> Bool 
+  isInterval (Def' qn _) = pretty qn == "Agda.Primitive.Cubical.I"
+  isInterval _ = False 
+    
+  isHC :: QName -> Bool
+  isHC qn = pretty qn == "Agda.Primitive.Cubical.primHComp"
+
+  isPP :: QName -> Bool
+  isPP qn = pretty qn == "Agda.Primitive.Cubical.primPOr"
+
+  applyConstraints :: CubTele' -> Expr -> CubTele'
+  applyConstraints t phi =
+    let co = collectConstraints phi
+    in foldl
+         (\e (n , b) -> map (\x@(isI , lb , mbE) ->
+                     case ((lbToName lb) == n, isI , mbE) of
+                       (True , False , _) ->  __IMPOSSIBLE__
+                       (False , _ , _) -> x
+                       (True , True , Just _) ->  __IMPOSSIBLE__
+                       (True , True , Nothing) ->  (isI , lb , Just b)
+                    )
+
+            e)
+          t (Map.toList co)
+
+  lbToName :: LamBinding -> Name
+  lbToName =  \case
+      (DomainFree _ nab) -> (unBind (binderName (namedArg nab)))
+      _ -> __IMPOSSIBLE__
+         
+  getFreeIVars :: CubTele' -> [LamBinding]              
+  getFreeIVars =
+     map (\(x,y,z) -> y) . filter (\case
+        (True , _ , Nothing) -> True
+        _ -> False)
+    
+  g' :: CubTele' -> Expr -> Expr
+  g' te e = g te e (appView e) 
+
+  g :: CubTele' -> Expr -> AppView -> Expr
+  g te _ (Application d@(Def' qn _) [lv , ty , phi , si , cap]) | isHC qn =
+    unAppView (Application d
+                   [lv , ty , phi ,
+                    fmap (fmap $ \(Lam q'' q''' si) ->
+                            let te' = (True , q''' , Nothing ) : te
+                                si' = gPa' te' (namedArg phi) si
+                            in Lam q'' q''' si') si  -- (Arg q (Named q' (si')))
+                   ,
+                    fmap (fmap $ g' te) cap])
+
+  g t e _ = qApp fv $
+   unAppView
+     $ Application
+        (exprsH (length fv))
+        [(defaultNamedArg (q fv e) )]
+   where
+    fv = (getFreeIVars t)
+
+    q :: [LamBinding] -> Expr -> Expr
+    q [] e = e
+    q (lb : lbs) e =
+      Lam (exprNoRange) lb (q lbs e)
+
+    qApp :: [LamBinding] -> Expr -> Expr
+    qApp lbs e =
+      unAppView
+       (Application e
+         (map
+           (defaultNamedArg . Var . lbToName)
+           lbs) ) 
+    -- unAppView
+    --  (Application he (fmap defaultNamedArg (getFreeIVars t)))
+
+
+  
+  -- g _ e _ = e
+
+  gCell :: CubTele' -> Expr -> Expr -> Expr
+  gCell t phi (Lam i b e) = (Lam i b (g' ((False,b,Nothing) : (applyConstraints t phi)) e))
+    -- where
+    --   gc :: AppView -> Expr
+    --   gc (Application  (Def' qn _) tl) | isHC qn =  g' t e
+    --   gc (Application he tl)  = he
+      
+    -- let (Application he tl) = appView e
+    -- in (Lam i b he)
+  gCell _ _ _ = __IMPOSSIBLE__ 
+
+  gPa :: CubTele' -> Expr -> Expr -> AppView -> Expr
+  gPa te _ _ (Application a1@(Def' qn _) [a2 , a3 , a4 , a5 , a6@(Arg _ (Named _ (Lam _ _ _))) , a7@ne']) | isPP qn =  unAppView $
+     Application a1 [a2 , a3 , a4 , a5 ,
+                       fmap (fmap $ gCell te (namedArg a3)) a6 ,
+                       fmap (fmap $ gPa' te (namedArg a4)) a7]
+
+  gPa te phi e@(Lam i b e0) _ = gCell te phi e 
+  gPa _ _ _ _ = __IMPOSSIBLE__
+
+
+  gPa' :: CubTele' -> Expr -> Expr -> Expr
+  gPa' t phi e = gPa t phi e (appView e)
+
+traverseCells' :: (Int -> Expr) -> (Int -> Expr) -> CubTelePa -> Expr -> Expr
+traverseCells' exprsH exprsHconst = g' True . (map (\(x , (y , _)) -> (isInterval (namedArg x) , y , Nothing)))
+
+ where
+    
+  isInterval :: Type -> Bool 
+  isInterval (Def' qn _) = pretty qn == "Agda.Primitive.Cubical.I"
+  isInterval _ = False 
+                 
+  isHC :: QName -> Bool
+  isHC qn = pretty qn == "Agda.Primitive.Cubical.primHComp"
+
+  isPP :: QName -> Bool
+  isPP qn = pretty qn == "Agda.Primitive.Cubical.primPOr"
+
+  isIntervalOp :: QName -> Bool
+  isIntervalOp qn =
+    (pretty qn == "Agda.Primitive.Cubical.primIMin")
+    || (pretty qn == "Agda.Primitive.Cubical.primIMax")
+    || (pretty qn == "Agda.Primitive.Cubical.primINeg")
+
+
+  isIntervalVar :: CubTele' -> Name -> Bool
+  isIntervalVar [] nm = error (show (pretty nm))  
+  isIntervalVar ((isI , lb , _) : xs) nm =
+     if (lbToName lb == nm)
+     then isI
+     else (isIntervalVar xs nm)
+
+  isIntervalE :: CubTele' -> Expr -> Bool
+  isIntervalE tl (Var nm) = isIntervalVar tl nm  
+  isIntervalE _ e =
+    case (appView e) of
+      Application (Def' qn _) _ -> isIntervalOp qn
+      _ -> False
+
+
+  isPoint :: CubTele' -> Expr -> Bool
+  isPoint tl =
+     getAll . foldExpr (All . (\case
+                 Var nm -> not (isIntervalVar tl nm)
+                 _ -> True 
+                              ))
+
+  applyConstraints :: CubTele' -> Expr -> CubTele'
+  applyConstraints t phi =
+    let co = collectConstraints phi
+    in foldl
+         (\e (n , b) -> map (\x@(isI , lb , mbE) ->
+                     case ((lbToName lb) == n, isI , mbE) of
+                       (True , False , _) ->  __IMPOSSIBLE__
+                       (False , _ , _) -> x
+                       (True , True , Just _) ->  __IMPOSSIBLE__
+                       (True , True , Nothing) ->  (isI , lb , Just b)
+                    )
+
+            e)
+          t (Map.toList co)
+
+  lbToName :: LamBinding -> Name
+  lbToName =  \case
+      (DomainFree _ nab) -> (unBind (binderName (namedArg nab)))
+      _ -> __IMPOSSIBLE__
+         
+  getFreeIVars :: CubTele' -> [LamBinding]              
+  getFreeIVars =
+     map (\(x,y,z) -> y) . filter (\case
+        (True , _ , Nothing) -> True
+        _ -> False)
+
+
+  wrp :: CubTele' -> Expr -> Expr
+  wrp t e = (qApp fv $
+   unAppView
+     $ Application
+        (exprsH (length fv))
+        [(defaultNamedArg e' )])
+   where
+    fv = case (length (getFreeIVars t)) of
+            0 -> error (show (map (\(x,y,z) -> (x , pretty (lbToName y) , z) ) t))
+            _ -> (getFreeIVars t)
+            
+
+    q :: [LamBinding] -> Expr -> Expr
+    q [] e = e
+    q (lb : lbs) e =
+      Lam (exprNoRange) lb (q lbs e)
+
+    qApp :: [LamBinding] -> Expr -> Expr
+    qApp lbs e =
+      unAppView
+       (Application e
+         (map
+           (defaultNamedArg . Var . lbToName)
+           lbs) )
+
+    e' = (q fv e)
+
+
+  wrpConst :: CubTele' -> Expr -> Expr
+  wrpConst t e = (qApp fv $
+   unAppView
+     $ Application
+        (exprsHconst (length fv))
+        [(defaultNamedArg e )])
+   where
+    fv = (getFreeIVars t)
+
+
+    qApp :: [LamBinding] -> Expr -> Expr
+    qApp lbs e =
+      unAppView
+       (Application e
+         (map
+           (defaultNamedArg . Var . lbToName)
+           lbs) )
+
+
+
+  g' :: Bool -> CubTele' -> Expr -> Expr
+  g' w te e =
+    let e' = g te e (appView e) 
+    in if w then wrp te e' else e'
+    
+  g :: CubTele' -> Expr -> AppView -> Expr
+  g te _ (Application d@(Def' qn _) [lv , ty , phi , si , cap]) | isHC qn =
+    unAppView (Application d
+                   [lv , ty , phi ,
+                    fmap (fmap $ \(Lam q'' q''' si) ->
+                            let te' = (True , q''' , Nothing ) : te
+                                si' = gPa' te' (namedArg phi) si
+                            in Lam q'' q''' si') si  -- (Arg q (Named q' (si')))
+                   ,
+                    fmap (fmap $ g' True te) cap])
+  -- g True t e _ = 
+  g t e@(Var _) _ = e
+  g t e _ | isPoint t e = wrpConst t e
+  g t e _ | isIntervalE t e = e
+  g t e (Application h args) =
+     unAppView (Application (g' False t h)
+               (fmap (fmap (fmap (g' False t))) args))
+          -- if skip then e else (qApp fv $
+   -- unAppView
+   --   $ Application
+   --      (exprsH (length fv))
+   --      [(defaultNamedArg e' )])
+   -- where
+   --  fv = (getFreeIVars t)
+
+   --  q :: [LamBinding] -> Expr -> Expr
+   --  q [] e = e
+   --  q (lb : lbs) e =
+   --    Lam (exprNoRange) lb (q lbs e)
+
+   --  qApp :: [LamBinding] -> Expr -> Expr
+   --  qApp lbs e =
+   --    unAppView
+   --     (Application e
+   --       (map
+   --         (defaultNamedArg . Var . lbToName)
+   --         lbs) )
+
+   --  e' = (q fv e)
+    -- unAppView
+    --  (Application he (fmap defaultNamedArg (getFreeIVars t)))
+
+
+  
+  -- g _ e _ = e
+
+  gCell :: CubTele' -> Expr -> Expr -> Expr
+  gCell t phi (Lam i b e) = (Lam i b (g' False ((False,b,Nothing) : (applyConstraints t phi)) e))
+    -- where
+    --   gc :: AppView -> Expr
+    --   gc (Application  (Def' qn _) tl) | isHC qn =  g' t e
+    --   gc (Application he tl)  = he
+      
+    -- let (Application he tl) = appView e
+    -- in (Lam i b he)
+  gCell _ _ _ = __IMPOSSIBLE__ 
+
+  gPa :: CubTele' -> Expr -> Expr -> AppView -> Expr
+  gPa te _ _ (Application a1@(Def' qn _) [a2 , a3 , a4 , a5 , a6@(Arg _ (Named _ (Lam _ _ _))) , a7@ne']) | isPP qn =  unAppView $
+     Application a1 [a2 , a3 , a4 , a5 ,
+                       fmap (fmap $ gCell te (namedArg a3)) a6 ,
+                       fmap (fmap $ gPa' te (namedArg a4)) a7]
+
+  gPa te phi e@(Lam i b e0) _ = gCell te phi e 
+  gPa _ _ _ _ = __IMPOSSIBLE__
+
+
+  gPa' :: CubTele' -> Expr -> Expr -> Expr
+  gPa' t phi e = gPa t phi e (appView e)

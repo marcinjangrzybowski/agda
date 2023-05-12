@@ -13,6 +13,9 @@ module Agda.TypeChecking.Primitive.Cubical
 import Prelude hiding (null, (!!))
 
 import Control.Monad
+import System.IO (writeFile , readFile)
+import System.IO.Unsafe
+
 import Control.Monad.Except
 import Control.Monad.Trans ( lift )
 import Control.Exception
@@ -34,6 +37,7 @@ import Agda.Interaction.Options ( optCubical )
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
 import Agda.Syntax.Internal.Pattern
+import Agda.Syntax.Builtin
 
 import Agda.TypeChecking.Names
 import Agda.TypeChecking.Primitive.Base
@@ -240,6 +244,7 @@ doPiKanOp cmd t ab = do
   tIMax <- getTermLocal builtinIMax
   iz    <- getTermLocal builtinIZero
 
+
   -- We must guarantee that the codomain is a fibrant type, i.e. one
   -- that supports hcomp and transp. Otherwise, what are we even doing!
   let
@@ -292,6 +297,7 @@ doPiKanOp cmd t ab = do
 
     caseMaybe trFibrantDomain (return Nothing) $ \trA -> Just <$> do
     [phi, u0] <- mapM (open . unArg) [ignoreBlocking (kanOpCofib cmd), kanOpBase cmd]
+
 
     glam (getArgInfo (fst $ famThing ab)) (absName $ snd $ famThing ab) $ \u1 -> do
       case (cmd, ab) of
@@ -407,6 +413,16 @@ doPathPKanOp a0 _ _ = __IMPOSSIBLE__
 redReturnNoSimpl :: a -> ReduceM (Reduced a' a)
 redReturnNoSimpl = pure . YesReduction NoSimplification
 
+ctxLookup :: Name -> Context -> Maybe Type
+ctxLookup nm = fmap (snd . unDom) . find ((== nm) . fst .unDom)
+
+
+extractDims :: Elims -> [Int]
+extractDims ((IApply _ _ (Var i [])) : xs) = (i : extractDims xs)
+-- extractDims ((Apply (Arg _ (Var i []))) : xs) = (i : extractDims xs)
+extractDims _ = []
+  -- map (\(IApply (Var i []) _ _) -> i)              
+
 primTransHComp :: Command -> [Arg Term] -> Int -> ReduceM (Reduced MaybeReducedArgs Term)
 primTransHComp cmd ts nelims = do
   (l,bA,phi,u,u0) <- pure $ case (cmd,ts) of
@@ -415,9 +431,26 @@ primTransHComp cmd ts nelims = do
     _ -> __IMPOSSIBLE__
   sphi <- reduceB' phi
   vphi <- intervalView $ unArg $ ignoreBlocking sphi
-  EnvCubeViz isECB _ <- viewTC eEnvCubeViz
+  EnvCubeViz isECB addCubSkel <- viewTC eEnvCubeViz
   let clP s = getTerm "primTransHComp" s
 
+  -- if addCubSkel
+  -- then (return (unsafePerformIO $ writeFile "/tmp/uglyHack" "1"))
+  -- else return ()
+
+  -- case ctx of
+  --   (x : _) ->
+  --      case (unEl (snd (unDom x))) of
+  --        Def qn _ ->
+  --           reportSDoc "emacs.hcompReduce" 10 $ pretty qn
+  --        _ -> return ()
+  --   [] -> return ()
+  -- -- reportSDoc "emacs.hcompReduce" 10 $
+  -- --     (vcat $ map (pretty . fst .unDom) (ctx))
+  -- when addCubSkel $
+  --   reportSDoc "emacs.hcompReduce" 10 $ (
+  --    vcat $ (fwords "inHcomp" ) : [text (show vphi)])
+  
   -- WORK
   case vphi of
     -- When φ = i1, we know what to do! These cases are counted as
@@ -457,6 +490,82 @@ primTransHComp cmd ts nelims = do
                pure . (NoReduction) $
                  [notReduced (famThing l), reduced sc, reduced sphi] ++ [u''] ++ [notReduced u0]
             (_ , True) -> do
+               vp' <- 
+                 if (not addCubSkel) then (iView'' vphi) else do 
+                 
+                    (Def builtinIntervalQN _) <- getTerm "hcomp skel" builtinInterval
+                    (Def builtinIsOneQN _) <-  getTerm "hcomp skel" builtinIsOne
+                    ctx <- fmap (envContext . redEnv) askR
+                    -- let dims = []
+                    let (Def _ dimsElims) = unArg u0
+                        dims = extractDims (reverse dimsElims)  
+                     -- <- mapMaybeM
+                     --            (\(k,x) -> case (unEl (snd (unDom x))) of
+                     --                     Def qn _ -> 
+                     --                       if (builtinIntervalQN == qn)
+                     --                       then do y <- reduceB' (Var k []) 
+                     --                               return (Just ((k , fst (unDom x)) , y ))
+                     --                       else return $ Nothing
+                     --                       --  case qn of
+                     --                       --       builtinIntervalQN ->
+                     --                       --          Just (pretty (unDom x))
+                     --                       --       builtinIsOneQN ->
+                     --                       --          Just (pretty (unDom x))
+                     --                       --       -- "Agda.Primitive.Cubical.IsOne" ->
+                     --                       --       --    Just (pretty (unDom x))
+                     --                       --       _ -> Nothing 
+                     --                       -- -- Just (pretty qn)
+                     --                        -- reportSDoc "emacs.hcompReduce" 10 $ pretty qn
+                     --                     _ -> return Nothing
+                     --            )
+                     --            (zip ([0..] :: [Int]) ctx)
+                    -- let constrainedDims =
+                    --      mapMaybe
+                    --             (\(x) -> case (unEl (snd (unDom x))) of
+                    --                      Def qn [Apply (Arg _ phi)] -> 
+                    --                        if (builtinIsOneQN == qn)
+                    --                        then (Just (pretty phi))
+                    --                        else Nothing
+                    --                        --  case qn of
+                    --                        --       builtinIntervalQN ->
+                    --                        --          Just (pretty (unDom x))
+                    --                        --       builtinIsOneQN ->
+                    --                        --          Just (pretty (unDom x))
+                    --                        --       -- "Agda.Primitive.Cubical.IsOne" ->
+                    --                        --       --    Just (pretty (unDom x))
+                    --                        --       _ -> Nothing 
+                    --                        -- -- Just (pretty qn)
+                    --                         -- reportSDoc "emacs.hcompReduce" 10 $ pretty qn
+                    --                      _ -> Nothing
+                    --             )
+                    --             (ctx)
+                    
+
+                    -- let yyy :: QName -> a -> Maybe a
+                    --     yyy qn | builtinIntervalQN == (qn) = Just
+                    --     yyy qn | builtinIsOneQN == (qn) = Just
+                    --     yyy _ = \x -> Nothing
+                    --     -- yyy _ = Just
+                    -- let xxx = mapMaybe
+                    --             (\x -> case (unEl (snd (unDom x))) of
+                    --                      -- Def qn _ ->
+                    --                      --   fmap (pretty) ((yyy qn) (unDom x))
+                    --                      _ -> Just (pretty (unDom x))
+                    --             )
+                    --             ctx
+
+
+                    -- reportSDoc "emacs.hcompReduce" 10 $ (vcat $
+                    --    (fwords "-------") : xxx)
+                                                           
+                    -- reportSDoc "emacs.hcompReduce" 10 $ (vcat $
+                    --    (fwords ". . . .") : fmap pretty dims )
+                    ivs <- (iViewSkel'' dims vphi)
+                    
+                    -- reportSDoc "emacs.hcompReduce" 10 $ (vcat $
+                    --    (fwords "* * * *") : (fmap pretty ivs) )
+                    return ivs
+               let vp = (map (raise 1)) $ vp'
                let getTermLocal = getTerm $ "builtinHComp reducing partial"
                tPOr <- getTermLocal builtinPOr
                iZ   <- getTermLocal builtinIZero
@@ -470,7 +579,7 @@ primTransHComp cmd ts nelims = do
                          )
                iO1   <- getTermLocal builtinIsOne1
                isOne1 <- getTermLocal builtinItIsOne
-               vp <- fmap (map (raise 1)) (iView'' vphi)
+               
                let u' = (raise 2) (unArg $ fromMaybe __IMPOSSIBLE__ u)
                let
                    cmb :: [(Term , ([Term] , [Term]))] -> NamesT ReduceM Term
@@ -551,6 +660,7 @@ primTransHComp cmd ts nelims = do
 
 
                 --    u' <- cmb vp
+               -- reportSLn "hcompReduce" 10 $ ("test")
 
                 --    reportSLn "hcompReduce" 10 $ 
                 --        (show $ map (show . Set.toList) (Set.toList vphi'))

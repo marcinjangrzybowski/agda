@@ -17,20 +17,23 @@ import Control.Monad.Writer
 
 import Data.Function ( on )
 import qualified Data.Map as Map
+import qualified Data.Map.Strict as MapS
 import qualified Data.Set as Set
 import Data.Set (Set)
+import qualified Data.List as List
 
 import Agda.Syntax.Common
 import Agda.Syntax.Position
 import Agda.Syntax.Literal
 import Agda.Syntax.Builtin
 import Agda.Syntax.Internal as I
+import Agda.Syntax.Internal.Elim
 import Agda.Interaction.Options.Base (PragmaOptions(..))
 import Agda.TypeChecking.Monad.Base
 -- import Agda.TypeChecking.Functions  -- LEADS TO IMPORT CYCLE
 import Agda.TypeChecking.Substitute
 
--- import Data.Foldable (all)
+import Data.Foldable (foldMap)
 
 import Agda.Utils.Functor
 import Agda.Utils.ListT
@@ -38,6 +41,9 @@ import Agda.Utils.Monad
 import Agda.Utils.Maybe
 import Agda.Utils.Singleton
 import Agda.Utils.Tuple
+import Agda.Utils.Pretty
+
+import Agda.Syntax.CVSyntax as CV
 
 import Agda.Utils.Impossible
 
@@ -255,7 +261,8 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primAgdaTCMExec,
     primAgdaTCMGetInstances,
     primAgdaTCMPragmaForeign,
-    primAgdaTCMPragmaCompile
+    primAgdaTCMPragmaCompile,
+    primWrap
     :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Term
 
 primInteger                           = getBuiltin builtinInteger
@@ -466,6 +473,7 @@ primAgdaTCMExec                       = getBuiltin builtinAgdaTCMExec
 primAgdaTCMGetInstances               = getBuiltin builtinAgdaTCMGetInstances
 primAgdaTCMPragmaForeign              = getBuiltin builtinAgdaTCMPragmaForeign
 primAgdaTCMPragmaCompile              = getBuiltin builtinAgdaTCMPragmaCompile
+primWrap                              = getBuiltin builtinWrap
 
 -- | The coinductive primitives.
 
@@ -665,6 +673,8 @@ iView' = fmap (Set.filter (\s ->
   OTerm (Var k []) -> return $ Set.singleton (Set.singleton (k , True))
   OTerm _ -> __IMPOSSIBLE__)
 
+toIView' :: HasBuiltins m => I.Term -> m (Set.Set ( Set.Set (Int , Bool)))
+toIView' = intervalView >=> iView'
 
 iUnView' :: HasBuiltins m => (Set.Set ( Set.Set (Int , Bool))) -> m IntervalView
 iUnView' =
@@ -697,7 +707,34 @@ iView'' x = do
     return (t , (v0 , v1))
          
            ) (Set.toList iv)
-  
+
+cubeSkel :: [Int] -> [Set.Set (Int , Bool)]
+cubeSkel [] = [Set.empty] 
+cubeSkel (x : xs) = do
+   cs <- cubeSkel xs
+   [Set.insert (x , False) cs , Set.insert (x , True) cs,cs] 
+
+addSkel :: [Int] -> (Set.Set ( Set.Set (Int , Bool))) -> (Set.Set ( Set.Set (Int , Bool)))
+addSkel allDims = foldMap (\fc ->
+               let presentDimsSet = Set.map fst fc
+                   missingDims = filter (not . flip (Set.member) presentDimsSet) allDims
+                   cs = cubeSkel missingDims 
+               in Set.fromList (fmap (Set.union fc) cs))
+
+iViewSkel'' :: HasBuiltins m => [Int] -> IntervalView -> m [(Term , ([Term] , [Term]))]
+iViewSkel'' dms x = do
+  iv <- fmap (addSkel dms) (iView' x)
+  mapM (\y -> do
+    y' <- iUnView' (Set.singleton y)
+    t <- intervalUnview y'
+    -- let s = foldl (\a (k , b) -> composeS a (inplaceS k (ib b) )) idS (Set.toList y)
+    let
+       v0 = map (\(x , _) -> Var x [] )  (filter (not . snd) (Set.toList y))
+       v1 = map (\(x , _) -> Var x [] )  (filter (snd) (Set.toList y))
+    return (t , (v0 , v1))
+         
+           ) (Set.toList iv)
+
 
 
 iReduce :: HasBuiltins m => Term -> m Term
@@ -720,6 +757,16 @@ pathView :: HasBuiltins m => Type -> m PathView
 pathView t0 = do
   view <- pathView'
   return $ view t0
+
+
+isDomPathK :: HasBuiltins m => Type -> m [Bool]
+isDomPathK t = do
+  view <- pathView'
+  let f t = case unEl t of
+         Pi d' b ->
+           (isPathType (view (unDom d'))) : (f (unAbs b))
+         _       -> []  
+  return (f t)
 
 pathView' :: HasBuiltins m => m (Type -> PathView)
 pathView' = do
@@ -871,3 +918,126 @@ getNameOfConstrained :: HasBuiltins m => String -> m (Maybe QName)
 getNameOfConstrained s = do
   unless (s `elem` constrainedPrims) __IMPOSSIBLE__
   getName' s
+
+stripLams :: I.Term -> I.Term
+stripLams (I.Lam _ t) = stripLams (unAbs t) 
+stripLams t = t
+
+
+
+
+data IExpr = IExpr (Set.Set ( Set.Set (Int , Bool)))
+  deriving (Eq , Show)
+
+data VarIndex = VarIndex Int | SomeDef String
+  deriving (Eq , Show, Ord)
+
+type Partial = Map.Map (Map.Map Int Bool) OExpr
+
+data ClExpr = ClExpr Int (Map.Map (Map.Map Int Bool) OExpr)
+  deriving (Eq , Show)
+
+data ConstExpr = ConstExpr String 
+  deriving (Eq , Show)
+
+data CellExpr = CellExpr VarIndex [IExpr]
+  deriving (Eq , Show)
+
+data OExpr =
+    HComp (Maybe String) Partial ClExpr
+  | Cell CellExpr
+  | ConstE ConstExpr
+  | CHole Int
+  | Appl ClExpr [ClExpr]  
+  deriving (Eq , Show)
+
+
+
+type CtxCV = [(Bool, Maybe Bool)]
+
+type CtxCVV = [Int]
+
+
+toCVV :: CtxCV -> CtxCVV
+toCVV = map fst . filter snd . reverse . zip [0..] . map fst . reverse  
+ 
+  
+
+-- type CuTyCrnrs = [I.Term]
+
+-- type CuTyCtx = [Maybe CuTyCrnrs]
+
+
+
+-- PathType
+--     { pathSort  :: Sort     -- ^ Sort of this type.
+--     , pathName  :: QName    -- ^ Builtin PATH.
+--     , pathLevel :: Arg Term -- ^ Hidden
+--     , pathType  :: Arg Term -- ^ Hidden
+--     , pathLhs   :: Arg Term -- ^ NotHidden
+--     , pathRhs   :: Arg Term -- ^ NotHidden
+--     }
+--   | OType Type -- ^ reduced
+
+-- cuTyCtx :: (HasBuiltins m , MonadTCError m) => Type -> m (CuTyCtx)
+-- cuTyCtx ty = do
+--   rst <- pathView'
+--   case (unEl ty) of
+--     Pi d cd -> do
+--       d' <- v (unDom d)
+--       case d' of
+--         OType _ ->   
+      
+--   where
+--     cuTy :: (HasBuiltins m , MonadTCError m) => Type -> m (CuTyCrnrs)
+--     cuTy t = 
+
+tyDim :: (HasBuiltins m , MonadTCError m) => Type -> m Int
+tyDim ty = do
+  v <- pathView'  
+  case v ty of
+    OType _ -> return 0   
+    PathType _ _ _ (Arg _ (Lam _ ty)) _ _ ->
+       ((+) 1) <$>
+         tyDim (El (__DUMMY_SORT__) (unAbs ty))
+    _ -> __IMPOSSIBLE__
+
+
+      
+cuTyDims :: (HasBuiltins m , MonadTCError m) => Type -> m [Int]
+cuTyDims ty = do
+  case (unEl ty) of
+    Pi d cd -> do
+      k <- tyDim  (unDom d)
+      ks <- cuTyDims (unAbs cd)
+      return (k : ks)
+    _ ->  return []
+
+tyCrnrs :: (HasBuiltins m , MonadTCError m) => Type -> m (Maybe [Term])
+tyCrnrs ty = do
+  v <- pathView'  
+  case v ty of
+    OType _ -> return Nothing
+    PathType _ _ _ (Arg _ ty'@(Lam _ ty)) (Arg _ e0) (Arg _ e1) -> do
+      iz <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIZero
+      io <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIOne
+      ci0 <- tyCrnrs $ El (__DUMMY_SORT__) (ty' `apply` [defaultArg iz])  
+      ci1 <-  tyCrnrs $ El (__DUMMY_SORT__) (ty' `apply` [defaultArg io])
+      case (ci0 , ci1) of
+        (Just crnrs0 , Just crnrs1) -> return $ Just (crnrs0 ++ crnrs1) 
+        _ -> return $ Just [e0 ,e1]
+       -- ((+) 1) <$>
+       --   tyDim (El (__DUMMY_SORT__) (unAbs ty))
+    _ -> __IMPOSSIBLE__
+
+
+ctxCrnrs :: (HasBuiltins m , MonadTCError m) => Type -> m [(Maybe [Term])]
+ctxCrnrs ty = do
+  case (unEl ty) of
+    Pi d cd -> do
+      k <- tyCrnrs (unDom d)
+      ks <- ctxCrnrs (unAbs cd)
+      return ((raise (length (ks) + 1) k) : ks)
+    _ -> do
+      d <- tyDim ty
+      return (replicate d Nothing)

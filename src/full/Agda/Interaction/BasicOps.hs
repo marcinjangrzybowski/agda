@@ -379,6 +379,13 @@ runForCubeViz =
                     , optShowImplicit = True})
     -- (\_ -> EnvCubeViz _ _) 
 
+runForCubeVizSkelet :: TCM t -> TCM t
+runForCubeVizSkelet =
+  runForCubeViz .
+      locallyTC eEnvCubeViz
+    (\ecv -> EnvCubeViz True True)
+    -- (\_ -> EnvCubeViz _ _) 
+
 
 normalFormForCubeViz :: (Reduce t, Simplify t, Instantiate t, Normalise t) => t -> TCM t
 normalFormForCubeViz t =

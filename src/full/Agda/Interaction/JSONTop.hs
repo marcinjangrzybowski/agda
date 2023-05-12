@@ -359,7 +359,8 @@ instance EncodeTCM DisplayInfo where
     [ "interactionPoint"  @= ii
     , "goalInfo"          #= withInteractionId ii (encodeGoalSpecific ii info)
     ]
-
+  encodeTCM (Info_Viz _) = error "unimplemented"
+    
 instance EncodeTCM GoalTypeAux where
   encodeTCM GoalOnly = kind "GoalOnly" []
   encodeTCM (GoalAndHave expr) = kind "GoalAndHave"

@@ -788,6 +788,7 @@ interpret (Cmd_goal_type_context_infer norm ii rng s) = do
 
 
 interpret (Cmd_cubeViz s) = do
+  -- wrapCV <- getTerm "wraping for cubeviz2" builtinWrap
   (time, expr) <- parseAndDoAtToplevel action s
   (time, exprTy) <- parseAndDoAtToplevel (B.typeInCurrentTerm norm) s
   state <- get

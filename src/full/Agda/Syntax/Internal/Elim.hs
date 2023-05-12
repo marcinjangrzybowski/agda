@@ -38,6 +38,10 @@ isApplyElim (Apply u) = Just u
 isApplyElim Proj{}    = Nothing
 isApplyElim (IApply _ _ r) = Just (defaultArg r)
 
+isIApplyElim :: Elim' a -> Bool
+isIApplyElim (IApply _ _ r) = True
+isIApplyElim _ = False
+
 isApplyElim' :: Empty -> Elim' a -> Arg a
 isApplyElim' e = fromMaybe (absurd e) . isApplyElim
 

@@ -780,6 +780,7 @@ library
       Agda.Utils.Zipper
       Agda.Version
       Agda.VersionCommit
+      Agda.Syntax.CVSyntax
 
   autogen-modules:
       Paths_Agda

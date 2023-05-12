@@ -408,6 +408,14 @@ coreBuiltins =
   , builtinAgdaTCMGetInstances               |-> builtinPostulate (tmeta --> tTCM_ (list primAgdaTerm))
   , builtinAgdaTCMPragmaForeign              |-> builtinPostulate (tstring --> tstring --> tTCM_ primUnit)
   , builtinAgdaTCMPragmaCompile              |-> builtinPostulate (tstring --> tqname --> tstring --> tTCM_ primUnit)
+  , (builtinWrap                      |-> BuiltinUnknown (Just $ (runNamesT [] $
+                                                              hPi' "la" (el $ cl primLevel) $ \ a ->
+                                                              hPi' "A" (sort . tmSort <$> a)
+                                                                $ \bA ->
+                                                                    elV 1 (varM 0)
+                                                                     --> elV 1 (varM 0)  
+                                                              ))
+                                                              (const $ const $ return ()))
   ]
   where
         (|->) = BuiltinInfo

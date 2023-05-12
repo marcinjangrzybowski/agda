@@ -79,7 +79,8 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinAgdaTCMExec,
   builtinAgdaTCMGetInstances,
   builtinAgdaTCMPragmaForeign,
-  builtinAgdaTCMPragmaCompile
+  builtinAgdaTCMPragmaCompile,
+  builtinWrap
   :: String
 
 builtinNat                               = "NATURAL"
@@ -294,6 +295,7 @@ builtinAgdaTCMExec                       = "AGDATCMEXEC"
 builtinAgdaTCMGetInstances               = "AGDATCMGETINSTANCES"
 builtinAgdaTCMPragmaForeign              = "AGDATCMPRAGMAFOREIGN"
 builtinAgdaTCMPragmaCompile              = "AGDATCMPRAGMACOMPILE"
+builtinWrap                              = "CUBEVIZWRAP"
 
 -- | Builtins that come without a definition in Agda syntax.
 --   These are giving names to Agda internal concepts which

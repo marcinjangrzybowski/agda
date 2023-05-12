@@ -289,6 +289,8 @@ data PostScopeState = PostScopeState
     --   This can produce ill-typed terms but they are often more readable. See issue #3606.
     --   Best set to True only for calls to pretty*/reify to limit unwanted reductions.
   , stPostLocalPartialDefs    :: !(Set QName)
+  , stPostCVDimCutoff         :: Maybe Int
+  , stPostCVMaxDim            :: Int
     -- ^ Local partial definitions, to be stored in the @Interface@
   }
   deriving (Generic)
@@ -446,6 +448,8 @@ initPostScopeState = PostScopeState
   , stPostConsideringInstance  = False
   , stPostInstantiateBlocking  = False
   , stPostLocalPartialDefs     = Set.empty
+  , stPostCVDimCutoff          = Nothing
+  , stPostCVMaxDim             = 0
   }
 
 initState :: TCState
@@ -457,6 +461,18 @@ initState = TCSt
 
 -- * st-prefixed lenses
 ------------------------------------------------------------------------
+
+stCVDimCutoff :: Lens' (Maybe Int) TCState
+stCVDimCutoff f s =
+  f (stPostCVDimCutoff  (stPostScopeState s)) <&>
+  \x -> s {stPostScopeState = (stPostScopeState s) {stPostCVDimCutoff  = x}}
+
+
+stCVMaxDim  :: Lens' (Int) TCState
+stCVMaxDim  f s =
+  f (stPostCVMaxDim (stPostScopeState s)) <&>
+  \x -> s {stPostScopeState = (stPostScopeState s) {stPostCVMaxDim = x}}
+
 
 stTokens :: Lens' HighlightingInfo TCState
 stTokens f s =
@@ -3431,7 +3447,7 @@ ifTopLevelAndHighlightingLevelIs l =
 
 data EnvCubeViz =
   EnvCubeViz { ecvEnabled :: Bool
-             , ecvReifyPathsAsPi :: Bool
+             , addSkeletonOnReduce :: Bool
              }
    deriving (Show, Eq, Generic)
 

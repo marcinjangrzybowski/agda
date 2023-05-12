@@ -76,3 +76,8 @@ transpProof e φ a b = f , \ j → comp (\ i → e i) (\ i →
       f = comp (\ i → e (~ i)) (\ i → \ { (φ = i1) → transp (\ j → e (j ∧ ~ i)) i (a 1=1); (φ = i0) → transp (\ j → e (~ j ∨ ~ i)) (~ i) b' }) b'
 
 {-# BUILTIN TRANSPPROOF transpProof #-}
+
+cvWrap : {la : Level} {A : Set la} → A → A
+cvWrap a = a 
+
+{-# BUILTIN CUBEVIZWRAP cvWrap #-}

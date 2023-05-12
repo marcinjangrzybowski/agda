@@ -27,6 +27,14 @@ import Agda.Syntax.Concrete as C
 import Agda.Syntax.Concrete.Pretty as CP
 import Agda.Syntax.Translation.InternalToAbstract as I2A
 import Agda.Syntax.Internal as I
+import Agda.Syntax.Info
+import qualified Data.Map as Map
+import qualified Data.Map.Strict as MapS
+import qualified Data.Set as Set
+import Data.Set (Set)
+
+import Agda.Syntax.Parser
+import Agda.TypeChecking.Warnings
 
 import Agda.TypeChecking.Errors ( explainWhyInScope, getAllWarningsOfTCErr, prettyError )
 import qualified Agda.TypeChecking.Pretty as TCP
@@ -34,6 +42,8 @@ import Agda.TypeChecking.Pretty (prettyTCM)
 import Agda.TypeChecking.Pretty.Warning (prettyTCWarnings, prettyTCWarnings')
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Warnings (WarningsAndNonFatalErrors(..))
+import Agda.TypeChecking.Primitive.Base
+import Agda.TypeChecking.Reduce
 import Agda.Interaction.AgdaTop
 import Agda.Interaction.Base
 import Agda.Interaction.BasicOps as B
@@ -52,10 +62,16 @@ import Agda.VersionCommit
 import Agda.Utils.List1 (List1 , NonEmpty(..)) 
 import qualified Agda.Utils.List1 as L1 
 import Agda.Utils.Suffix
+import Agda.Utils.Tuple
+import Agda.Syntax.Translation.ConcreteToAbstract
+import Agda.Utils.Impossible
+
+import Agda.TypeChecking.Monad.Builtin
 
 import Agda.TypeChecking.Substitute.Class
+import qualified Agda.TypeChecking.Rules.Term as ATCRT
 
-import Data.Maybe (maybeToList)
+import Data.Maybe (maybeToList , fromMaybe)
 
 ----------------------------------
 
@@ -214,25 +230,228 @@ lispifyDisplayInfo info = case info of
     Info_GoalSpecific ii kind -> lispifyGoalSpecificDisplayInfo ii kind
     Info_Viz vd -> lispifyVizData vd
 
+  
+data Visualisation =
+    Visualisation ClExpr ([ (String,(String,Maybe [String]))]) 
+ deriving (Show)
 
+toCVSyntax2 :: CtxCVV -> I.Term -> TCM (ClExpr)
+toCVSyntax2 = h 
+ where
+    
+   uaO ::  String -> TCM OExpr
+   uaO = --genericError
+       \x -> return $ ConstE (ConstExpr x)
+
+
+   ua ::  String -> TCM ClExpr
+   ua = genericError
+       -- \x -> return $
+       --  ClExpr 0 (MapS.fromList [(MapS.empty, (ConstE (ConstExpr x)))])
+
+   qn2s :: I.QName -> String
+   qn2s qn = lastPart (show (pretty qn))
+
+   qn2sL :: I.QName -> String
+   qn2sL qn = (show (pretty qn))
+
+   lastPart :: String -> String
+   lastPart = List.reverse . List.takeWhile (\c -> '.' /= c) . List.reverse  
+
+   sfSubst :: I.Term -> I.Term -> CtxCVV -> [(Int , Bool)] -> I.Term -> (CtxCVV , I.Term) 
+   sfSubst i0 i1 ctx sfc t =
+     let m = Map.fromList sfc
+         l = List.sortOn (fst) $ mapMaybe (\(k , i) ->
+                       case (Map.lookup k m) of
+                         Just b -> Just (i,if b then i1 else i0)
+                         Nothing -> Nothing) (zip [0..] ctx)
+           -- [ case (Map.lookup k m) of
+           --       Just b -> if b then else
+           --       Nothing -> | (i) <- sfc ]
+         
+     in (hh ( List.reverse $ List.sort (mapMaybe (\(k , i) ->
+                           case Map.lookup k m of
+                              Just _ -> Just i
+                              Nothing -> Nothing
+                                     )
+              (zip [0 ..] ctx)) )  ctx  , applySubst (listS l) t) 
+
+    where
+      hh :: [Int] -> CtxCVV -> CtxCVV
+      hh [] y = y
+      hh (x : xs) y = hh xs (map (\k -> if k > x then k - 1 else k) $ filter ((/=) x) y)  
+        
+   allSfcs :: Int -> [[(Int , Bool)]] 
+   allSfcs 0 = [[]]
+   allSfcs n =
+     let s = map (map (\(k , b) -> (k + 1 , b))) (allSfcs (n - 1))
+     in (map ((:) (0 , False)) s) ++ (map ((:) (0 , True)) s) ++ s
+   -- mkSfc ::
+   
+   h ctx tm' = do
+      tm <- normalise tm'
+      let dim = length ctx
+      iz <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIZero
+      io <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIOne
+      sfcs <- mapM
+        (\sf -> do
+           let (c , tt) = (sfSubst iz io ctx sf tm)
+           t <- normalise tt
+           -- reportSLn "emacs.hcompReduce" 10 $ (show sf) 
+           -- reportSLn "emacs.hcompReduce" 10 $ (show (pretty t))
+           o <- hO c t
+           return (sf , o) ) (allSfcs dim)
+      return $ ClExpr dim $ Map.fromList (map (\(x , y) -> (Map.fromList x , y) ) sfcs)
+          -- (Map.Map (Map.Map Int Bool) OExpr)      
+
+   elims2terms :: Elims -> [I.Term]
+   elims2terms = map unArg . argsFromElims
+
+
+   toDI ::   CtxCVV -> Int -> TCM Int
+   toDI ctx k =
+      case (List.elemIndex k ctx) of
+        Just z -> return z
+        Nothing -> genericError $ "toDI fail : " ++ show (ctx , k)
+
+   parseIExpr ::  CtxCVV -> I.Term -> TCM IExpr
+   parseIExpr ctx t = do 
+     iv <- toIView' t
+     z <- (mapM (\y -> mapM (\(x , y) -> (toDI ctx x >>= (\x -> pure (x , y))))
+                  (Set.toList y) )
+            (Set.toList iv))
+     return $
+       (IExpr $ Set.fromList (map Set.fromList z) ) 
+
+   mkCellExpr ::  CtxCVV ->  VarIndex ->[I.Term] -> TCM (CellExpr) 
+   mkCellExpr ctx k es = (CellExpr k) <$>
+        (mapM (parseIExpr ctx) es)
+
+
+   hPa ::  CtxCVV -> IExpr -> I.Term -> TCM Partial 
+   hPa ctx (IExpr ie) tm = do
+      let dim = length ctx
+          allDims = [0 .. (dim - 1)] 
+          allCovered = (map (Set.toList) (Set.toList (addSkel allDims ie)))
+      iz <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIZero
+      io <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIOne
+      isOne1 <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinItIsOne
+      sfcs <- mapM
+        (\sf -> do
+           let ctx' = map ((+) 1) ctx ++ [0]
+               (c , tt) = (sfSubst iz io ctx' sf (raise 1 tm))
+                      
+           t <- normalise $ tt `apply` [defaultArg (I.Var 0 []) , defaultArg isOne1 ]
+           reportSLn "emacs.hcompReduce" 10 $ (show sf)
+           
+           reportSLn "emacs.hcompReduce" 10 $ (show (pretty t))
+           o <- hO c t
+           return (sf , o)) allCovered
+      return $  Map.fromList (map (\(x , y) -> (Map.fromList x , y) ) sfcs)
+          -- (Map.Map (Map.Map Int Bool) OExpr)      
+  
+   hO :: CtxCVV -> I.Term -> TCM OExpr
+   hO ctx (I.Def qn es@[_ , _ , _ , _ , _]) | (qn2s qn) == "primHComp" =
+          do let [_ , _ , phi , si , cp] = (elims2terms es)
+             phi' <- parseIExpr ctx phi
+             si' <- hPa ctx phi' si
+             cp' <- (h ctx cp)
+             
+             return $ HComp Nothing
+                   si' cp'
+                     -- return $ ConstE (ConstExpr (qn2s qn))
+   hO ctx (I.Con ch ci es) | List.all isIApplyElim es =
+                      -- return (Cell (CellExpr (VarIndex k) []))
+                      Cell <$> (mkCellExpr ctx (SomeDef (qn2sL (I.conName ch))) (elims2terms es))
+                  | otherwise =
+                     case es of
+                       [I.Apply (Arg _ a)] -> do
+                         a' <- h ctx a
+                         k' <- h ctx (I.Con ch ci [])
+                         return $ Appl k' [a']
+                       _ ->  uaO $  ("not implemented App >1")
+                     -- Appl (h ctx) tm  ? 
+                    -- uaO $  ("not implemented App")                                             
+   hO ctx (I.Var k es) | List.all isIApplyElim es =
+                      -- return (Cell (CellExpr (VarIndex k) []))
+                      Cell <$> (mkCellExpr ctx (VarIndex k) (elims2terms es))
+                  | otherwise =
+                     case es of
+                       [I.Apply (Arg _ a)] -> do
+                         a' <- h ctx a
+                         k' <- h ctx (I.Var k [])
+                         return $ Appl k' [a']
+                       _ ->  uaO $  ("not implemented App >1")
+                     -- Appl (h ctx) tm  ? 
+                    -- uaO $  ("not implemented App") 
+   hO _ _ = uaO $ "todo"
+
+   
 lispifyVizData :: VizData -> TCM [Lisp String]
 lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
-     (lamArgs , cdTyE) <- (AV.funOrPiTypeArgs) <$>
-        locallyTC eEnvCubeViz
-             (\(EnvCubeViz b _) -> EnvCubeViz b True) 
-             (reify (I2A.PiDomPart' True 0 (tTy)))
-     let rTm = reApply lamArgs
-     tTm' <- B.normalFormForCubeViz rTm
+     let getHlpr = \hn -> (fmap fst (runPM $ parse exprParser hn ))
+                    >>= (atTopLevel . concreteToAbstract_)
+     
+     -- wrapCV <- getTerm "wraping for cubeviz2" builtinWrap
+     let f ty = (AV.funOrPiTypeArgs) <$>
+                  runForCubeViz (locallyTC eEnvCubeViz
+                       (\(EnvCubeViz b _) -> EnvCubeViz b True) 
+                       (reify (I2A.PiDomPart' True 0 (ty))))
+            
+         -- getD x = f x >>= (return . (length . filter (\x -> x) . map (isIntervalCrude . (namedArg)) . fst))
+     (lamArgs , cdTyE) <- f tTy
+     argsDims <- cuTyDims tTy
+     cCo <- --(map (fmap (map (\x -> reApply x lamArgs)))) <$>
+             ctxCrnrs tTy
+
+     cCo' <- mapM (mapM (
+                           mapM B.normalFormForCubeViz  
+                        )) cCo
+     let rTm = reApply tTm lamArgs
+         tTm' = rTm
+     -- wrappedRTm <- reify rTm
+     
+     -- tTm' <- B.normalFormForCubeViz tTm --(wrapCV `apply` [argN tTm])
+     -- eTm' <- fmap AV.collectCells (runForCubeViz $ reify tTm')
+     -- let etmsShow = List.last (map show eTm')
+     
      (e , ctx , lamBinds) <- reifyStripLams tTm'
+     -- pathsKs <- isDomPathK tTy
+     let cubTele = (zip lamArgs (zip lamBinds (repeat False)))
+     --     -- isITest = isIntervalTest cubTele
+     -- -- eTm' <- fmap (AV.traverseCells' exprsH exprsHCo cubTele) (return e)
+     -- -- eTm' <- (return e)
+     -- let eTm'' = reAbstr lamBinds eTm'
+     -- -- rTm'' <- runForCubeViz (ATCRT.checkExpr eTm'' tTy)
+     -- --           >>= (runForCubeVizSkelet . B.normalFormForCubeViz)
+     -- e''Lam <- runForCubeViz (reify rTm'')
+     -- (e'' , _ , _) <- reifyStripLams (reApply rTm'' lamArgs)
+     ccViewResult <- 
+       catchError_ ((Right) <$> (toCVSyntax2 (toCVV (cubTeleHlpr cubTele)) (stripLams tTm')))
+          (pure . Left . show)
+     ccCtx <- vizCtx (zip lamArgs ctx) cCo'
+     -- -- reportSLn "emacs.hcompReduce" 10 $ ("test0")
+     -- eTyEx <- runForCubeViz (reify tTy)
      eDoc <- prettyExpr e
+     -- eDoc'' <- prettyExpr e''
      doc <- TCP.vcat
-         [ "Goal:" TCP.<+> prettyExpr cdTyE
+         [
+           "Goal:" TCP.<+> prettyExpr cdTyE
+         -- , prettyExpr eTyEx
         , return $ "Elaborates to:" <+> eDoc
+        -- , return $ "Elaborates to:" <+> eDoc''
         -- , return (vcat boundaryDoc)
+        -- , TCP.text ccViewResult
+        , TCP.text (show argsDims)
+        , TCP.vcat (map (\case
+                            (k , Just x) ->  TCP.text (show k ++ " :\n") TCP.<+>
+                               nest 4 <$> (TCP.vcat (map (TCP.text . show) x))
+                            (k , Nothing) -> TCP.text (show k ++ " : n/a")) (zip [0..] (reverse cCo'))) 
         , TCP.text (replicate 60 '\x2014')
         , prettyCtx (zip lamArgs ctx)
-        , prettyExpr tTm'
-        -- , TCP.text (show lamBinds)
+        
+        -- , (prettyExpr eTm'')
+        -- , (prettyExpr exprH2)
          
         ]
 
@@ -247,7 +466,8 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
          --    , prettyExpr e
             
          --    ]
-     -- visualizeTerm doc
+         
+     visualizeTerm (fmap (\y -> Visualisation y ccCtx) ccViewResult)
      format (render doc) "*value and type for viz*"
       -- exprDoc <- evalStateT prettyExpr state
       -- let doc = maybe empty prettyTimed time $$ exprDoc
@@ -256,8 +476,17 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
       -- format (render doc) lbl
       where
 
-        reApply :: ([(NamedArg A.Type)]) -> I.Term 
-        reApply args =
+        -- getCorners ::  
+
+        
+
+        reAbstr :: [A.LamBinding] -> A.Expr -> A.Expr
+        reAbstr [] e = e
+        reAbstr (lb : lbs) e =
+          A.Lam (exprNoRange) lb (reAbstr lbs e)
+          
+        reApply :: I.Term -> ([(NamedArg A.Type)]) -> I.Term 
+        reApply tTm args =
           let t' = apply ((raise (length args)) tTm) $
                      [ Arg a (I.Var (length args - k - 1) [])
                      | (Arg a (Named mbN _) , k) <- zip args [0..]
@@ -279,14 +508,16 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
                 (\((Arg a _) , nm) ->
                   I.Lam a . Abs  nm --(fromMaybe "i" ((rangedThing . woThing) <$>  mbN)) 
                     )
-                 t' (zip args args'')
+                t'
+                 -- (wrapCV `apply` [argN t'])
+                (zip args args'')
 
         -- stripLamExpr :: A.Expr -> ( )
         -- stripLamExpr = 
 
         reifyStripLams :: I.Term -> TCM (A.Expr , [ArgName] , [A.LamBinding] ) 
         reifyStripLams t = do
-          e <- reify t
+          e <- runForCubeViz (reify t)
           let (LamView lbs e') = AV.lamView e
               lbsNms = concat $
                   map
@@ -298,9 +529,7 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
                         map (\(Arg _ (Named (Just nm) _)) ->
                                (rangedThing . woThing) nm
                             ) (L1.toList nmArgs)
-                          -- (A.TBind _ _
-                          --       nmArgs-- ((Arg _ (Named (Just nm) _)) :| [])
-                          --       _) -> []
+                     _ -> __IMPOSSIBLE__
                       ) lbs
                  
           -- (L1.toList nal1)
@@ -319,9 +548,26 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
             -- (B.showComputed cmode)
             -- $ expr
 
+        vizCtx :: [(NamedArg A.Type , ArgName)] -> [(Maybe [Term])]
+           -> TCM ([ (String,(String,Maybe [String]))])
+        vizCtx z zz = do
+          lns <- mapM (\(((Arg _ (Named mbN ty )) , nm
+                            -- (A.DomainFull
+                            --   (A.TBind _ _
+                            --     ((Arg _ (Named (Just nm) _)) :| [])
+                            --     _))
+                           -- (A.DomainFree _ ((Arg _ (Named (Just nm) _))))
+                        ) , qq) -> 
+              do tyDoc <- prettyExpr ty
+                 let nm' = maybe nm (rangedThing . woThing) mbN   
+                 return (nm' , (show tyDoc , fmap (map show) qq))
+            ) (zip z zz)
+          return $ (reverse lns) 
+
+
         prettyCtx :: [(NamedArg A.Type , ArgName)] -> TCM Doc
         prettyCtx z = do
-          lns <- mapM (\((Arg _ (Named _ ty )) , nm
+          lns <- mapM (\((Arg _ (Named mbN ty )) , nm
                             -- (A.DomainFull
                             --   (A.TBind _ _
                             --     ((Arg _ (Named (Just nm) _)) :| [])
@@ -329,19 +575,20 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
                            -- (A.DomainFree _ ((Arg _ (Named (Just nm) _))))
                         ) -> 
               do tyDoc <- prettyExpr ty
-                 return (text (nm ++ "  : ") <+>  tyDoc)
+                 let nm' = maybe nm (rangedThing . woThing) mbN   
+                 return (text (nm' ++ "  : ") <+>  tyDoc)
             ) z
           return $ vcat (reverse lns) 
 
 
-visualizeTerm :: Doc -> TCM () 
-visualizeTerm doc = do
-  liftIO $ writeFile "/tmp/cubeViz2Input" (render doc)
+visualizeTerm :: (Either String Visualisation) -> TCM () 
+visualizeTerm vis = do
+  liftIO $ writeFile "/tmp/cubeViz2Input" (show vis)
   liftIO $ do
       dfe <-  doesFileExist "/tmp/cubeViz2Web/cvd.js"
       if dfe then removeFile "/tmp/cubeViz2Web/cvd.js" else return ()
   void $ liftIO $ createProcess
-        (shell "/Users/marcin/cubeViz2/dist-newstyle/build/x86_64-osx/ghc-8.10.7/cubeViz2-0.1.0.0/x/cubeViz2-exe/build/cubeViz2-exe/cubeViz2-exe /tmp/cubeViz2Input") { std_err = CreatePipe , std_out = CreatePipe }
+        (shell "/Users/marcin/cubeViz2/dist-newstyle/build/x86_64-osx/ghc-9.2.5/cubeViz2-0.1.0.0/x/cubeViz2-exe/build/cubeViz2-exe/cubeViz2-exe /tmp/cubeViz2Input") { std_err = CreatePipe , std_out = CreatePipe }
   
   
 lispifyGoalSpecificDisplayInfo :: InteractionId -> GoalDisplayInfo -> TCM [Lisp String]
@@ -392,7 +639,7 @@ lispifyGoalSpecificDisplayInfo ii kind = localTCState $ withInteractionId ii $
         , return ctxDoc
         ]
         -- ++ constraintsDoc
-      visualizeTerm doc
+      -- visualizeTerm doc
             
       format (render doc) "*Goal type etc.*"
     Goal_CurrentGoal norm -> do
@@ -457,6 +704,7 @@ showInfoError (Info_GenericError err) = do
   return $ if null w
             then errorMsg
             else errorMsg ++ "\n\n" ++ warningMsg
+                 
 showInfoError (Info_CompilationError warnings) = do
   s <- prettyTCWarnings warnings
   return $ unlines
