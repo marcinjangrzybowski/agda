@@ -117,7 +117,7 @@ data DisplayInfo
     | Info_GoalSpecific InteractionId GoalDisplayInfo
     | Info_Viz VizData 
 
-data VizData = VizData I.Type I.Term
+data VizData = VizData I.Type I.Term A.Expr
 
 data GoalDisplayInfo
     = Goal_HelperFunction (OutputConstraint' A.Expr A.Expr)

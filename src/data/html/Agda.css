@@ -39,3 +39,13 @@
 .Agda a { text-decoration: none }
 .Agda a[href]:hover { background-color: #B4EEB4 }
 .Agda [href].hover-highlight { background-color: #B4EEB4; }
+
+.Agda a.vizlink { 
+    text-decoration: underline;
+    padding: 6px;
+    border: 1px solid;
+    padding-bottom: 9px;
+    display: inline-block;
+    background-color: blue;
+    color: white;
+}

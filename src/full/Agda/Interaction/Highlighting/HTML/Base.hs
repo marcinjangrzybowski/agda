@@ -256,6 +256,9 @@ page css
       , Html5.link !! [ Attr.rel "stylesheet"
                       , Attr.href $ stringValue css
                       ]
+      , Html5.script mempty !! [ Attr.type_ "text/javascript"
+          , Attr.src $ stringValue "../vizlink.js"
+          ]
       , if highlightOccurrences
         then Html5.script mempty !!
           [ Attr.type_ "text/javascript"

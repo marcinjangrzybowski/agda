@@ -791,6 +791,7 @@ interpret (Cmd_cubeViz s) = do
   -- wrapCV <- getTerm "wraping for cubeviz2" builtinWrap
   (time, expr) <- parseAndDoAtToplevel action s
   (time, exprTy) <- parseAndDoAtToplevel (B.typeInCurrentTerm norm) s
+  (time, exprNotNorm) <- parseAndDoAtToplevel return s
   state <- get
   -- opts <- lift commandLineOptions
   -- setCommandLineOpts $
@@ -829,7 +830,7 @@ interpret (Cmd_cubeViz s) = do
   --   return (nfe)
 
 
-  display_info $ Info_Viz (VizData exprTy expr)
+  display_info $ Info_Viz (VizData exprTy expr exprNotNorm)
     where
     cmode = IgnoreAbstract
     norm = Normalised
@@ -837,6 +838,7 @@ interpret (Cmd_cubeViz s) = do
     action = allowNonTerminatingReductions
            . (if B.computeIgnoreAbstract cmode then ignoreAbstractMode else inConcreteMode)
            . B.evalInCurrentTerm cmode
+       
 
     
            

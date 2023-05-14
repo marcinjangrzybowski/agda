@@ -232,7 +232,7 @@ lispifyDisplayInfo info = case info of
 
   
 data Visualisation =
-    Visualisation ClExpr ([ (String,(String,Maybe [String]))]) 
+    Visualisation (Maybe String) ClExpr ([ (String,(String,Maybe [String]))]) 
  deriving (Show)
 
 toCVSyntax2 :: CtxCVV -> I.Term -> TCM (ClExpr)
@@ -369,7 +369,7 @@ toCVSyntax2 = h
                          a' <- h ctx a
                          k' <- h ctx (I.Con ch ci [])
                          return $ Appl k' [a']
-                       _ ->  uaO $  ("not implemented App >1")
+                       _ ->  uaO $  ("not implemented App >1 on " ++ qn2sL (I.conName ch))
                      -- Appl (h ctx) tm  ? 
                     -- uaO $  ("not implemented App")                                             
    hO ctx (I.Var k es) | List.all isIApplyElim es =
@@ -388,7 +388,7 @@ toCVSyntax2 = h
 
    
 lispifyVizData :: VizData -> TCM [Lisp String]
-lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
+lispifyVizData (VizData tTy tTm eNonRed) = B.runForCubeViz $ do
      let getHlpr = \hn -> (fmap fst (runPM $ parse exprParser hn ))
                     >>= (atTopLevel . concreteToAbstract_)
      
@@ -400,6 +400,10 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
             
          -- getD x = f x >>= (return . (length . filter (\x -> x) . map (isIntervalCrude . (namedArg)) . fst))
      (lamArgs , cdTyE) <- f tTy
+     let mbDefName = -- (Just . show) <$> (prettyExpr eNonRed)
+           case AV.appView (eNonRed) of
+             AV.Application (A.Def' qn _) _ -> Just (show (pretty qn))
+             _ -> Nothing
      argsDims <- cuTyDims tTy
      cCo <- --(map (fmap (map (\x -> reApply x lamArgs)))) <$>
              ctxCrnrs tTy
@@ -467,7 +471,7 @@ lispifyVizData (VizData tTy tTm) = B.runForCubeViz $ do
             
          --    ]
          
-     visualizeTerm (fmap (\y -> Visualisation y ccCtx) ccViewResult)
+     visualizeTerm (fmap (\y -> Visualisation mbDefName y ccCtx) ccViewResult)
      format (render doc) "*value and type for viz*"
       -- exprDoc <- evalStateT prettyExpr state
       -- let doc = maybe empty prettyTimed time $$ exprDoc
@@ -588,7 +592,7 @@ visualizeTerm vis = do
       dfe <-  doesFileExist "/tmp/cubeViz2Web/cvd.js"
       if dfe then removeFile "/tmp/cubeViz2Web/cvd.js" else return ()
   void $ liftIO $ createProcess
-        (shell "/Users/marcin/cubeViz2/dist-newstyle/build/x86_64-osx/ghc-9.2.5/cubeViz2-0.1.0.0/x/cubeViz2-exe/build/cubeViz2-exe/cubeViz2-exe /tmp/cubeViz2Input") { std_err = CreatePipe , std_out = CreatePipe }
+        (shell "/Users/marcin/cubeViz2/dist-newstyle/build/x86_64-osx/ghc-9.2.7/cubeViz2-0.1.0.0/x/cubeViz2-exe/build/cubeViz2-exe/cubeViz2-exe /tmp/cubeViz2Input") { std_err = CreatePipe , std_out = CreatePipe }
   
   
 lispifyGoalSpecificDisplayInfo :: InteractionId -> GoalDisplayInfo -> TCM [Lisp String]
