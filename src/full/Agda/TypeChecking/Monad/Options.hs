@@ -121,7 +121,7 @@ libToTCM m = do
 
   unless (null warns) $ warnings $ map LibraryWarning warns
   case z of
-    Left s  -> typeError $ GenericDocError s
+    Left s  -> typeError $ LibraryError s
     Right x -> return x
 
 -- | Returns the library files for a given file.
@@ -237,7 +237,7 @@ setOptionsFromPragma' checkConsistency ps = setCurrentRange (pragmaRange ps) $ d
     let (z, warns) = runOptM (parsePragmaOptions ps opts)
     mapM_ (warning . OptionWarning) warns
     case z of
-      Left err    -> typeError $ GenericError err
+      Left err    -> typeError $ OptionError err
       Right opts' -> do
 
         -- Check consistency of implied options

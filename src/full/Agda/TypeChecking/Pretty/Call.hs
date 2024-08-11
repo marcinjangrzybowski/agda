@@ -22,7 +22,6 @@ import Agda.TypeChecking.Monad.Context
 import Agda.TypeChecking.Monad.Debug
 import Agda.TypeChecking.Pretty
 
-import Agda.Utils.Function
 import Agda.Utils.Null
 import qualified Agda.Syntax.Common.Pretty as P
 
@@ -31,12 +30,10 @@ import Agda.Utils.Impossible
 import Agda.Version (docsUrl)
 
 sayWhere :: MonadPretty m => HasRange a => a -> m Doc -> m Doc
-sayWhere x d = applyUnless (null r) (prettyTCM r $$) d
-  where r = getRange x
+sayWhere x d = prettyTCM (getRange x) $$ d
 
 sayWhen :: MonadPretty m => Range -> Maybe (Closure Call) -> m Doc -> m Doc
-sayWhen r Nothing   m = sayWhere r m
-sayWhen r (Just cl) m = sayWhere r (m $$ prettyTCM cl)
+sayWhen r cl m = sayWhere r (m $$ prettyTCM cl)
 
 instance PrettyTCM CallInfo where
   prettyTCM (CallInfo callInfoTarget callInfoCall) = do

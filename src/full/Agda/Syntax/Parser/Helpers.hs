@@ -10,8 +10,6 @@ import Control.Monad.State
 
 import Data.Bifunctor (first, second)
 import Data.Char
-import Data.DList (DList)
-import qualified Data.DList as DL
 import qualified Data.List as List
 import Data.Maybe
 import Data.Semigroup ((<>), sconcat)
@@ -428,26 +426,6 @@ buildDoStmt e@(RawApp r _)    cs = do
     Just (pat, r, expr) -> pure $ DoBind r pat expr cs
     Nothing -> defaultBuildDoStmt e cs
 buildDoStmt e cs = defaultBuildDoStmt e cs
-
-
--- | Check for duplicate record directives.
-verifyRecordDirectives :: [RecordDirective] -> Parser RecordDirectives
-verifyRecordDirectives ds =
-  case rs of
-    []  -> return (RecordDirectives (listToMaybe is) (listToMaybe es) (listToMaybe ps) (listToMaybe cs))
-      -- Here, all the lists is, es, cs, ps are at most singletons.
-    r:_ -> parseErrorRange r $ unlines $ "Repeated record directives at:" : map prettyShow rs
-  where
-  errorFromList []  = []
-  errorFromList [x] = []
-  errorFromList xs  = map getRange xs
-  rs  = List.sort $ concat [ errorFromList is, errorFromList es', errorFromList cs, errorFromList ps ]
-  es  = map rangedThing es'
-  is  = [ i      | Induction i          <- ds ]
-  es' = [ e      | Eta e                <- ds ]
-  cs  = [ (c, i) | Constructor c i      <- ds ]
-  ps  = [ r      | PatternOrCopattern r <- ds ]
-
 
 
 {--------------------------------------------------------------------------

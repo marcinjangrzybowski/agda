@@ -1,6 +1,6 @@
 cabal-version:   2.4
 name:            Agda
-version:         2.6.5
+version:         2.8.0
 build-type:      Custom
 license:         MIT
 license-file:    LICENSE
@@ -35,8 +35,9 @@ description:
     packages.
 
 tested-with:
+    GHC == 9.10.1
     GHC == 9.8.2
-    GHC == 9.6.5
+    GHC == 9.6.6
     GHC == 9.4.8
     GHC == 9.2.8
     GHC == 9.0.2
@@ -48,6 +49,8 @@ extra-doc-files:
     CHANGELOG.md
     README.md
     doc/user-manual/agda.svg
+    doc/release-notes/2.7.0.md
+    doc/release-notes/2.6.4.3.md
     doc/release-notes/2.6.4.2.md
     doc/release-notes/2.6.4.1.md
     doc/release-notes/2.6.4.md
@@ -90,8 +93,9 @@ extra-doc-files:
     doc/release-notes/2.2.0.md
 
 extra-source-files:
+    stack-9.10.1.yaml
     stack-9.8.2.yaml
-    stack-9.6.5.yaml
+    stack-9.6.6.yaml
     stack-9.4.8.yaml
     stack-9.2.8.yaml
     stack-9.0.2.yaml
@@ -157,7 +161,7 @@ source-repository head
 source-repository this
   type:     git
   location: https://github.com/agda/agda.git
-  tag:      v2.6.5
+  tag:      v2.8.0
 
 -- Build flags
 ---------------------------------------------------------------------------
@@ -786,6 +790,7 @@ library
       Agda.Utils.Hash
       Agda.Utils.HashTable
       Agda.Utils.Haskell.Syntax
+      Agda.Utils.IArray
       Agda.Utils.Impossible
       Agda.Utils.IndexedList
       Agda.Utils.IntSet.Infinite

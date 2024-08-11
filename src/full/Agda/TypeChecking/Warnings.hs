@@ -17,8 +17,9 @@ module Agda.TypeChecking.Warnings
 import Control.Monad ( forM, unless )
 import Control.Monad.Except ( MonadError(..) )
 import Control.Monad.Reader ( ReaderT )
-import Control.Monad.State ( StateT )
-import Control.Monad.Trans ( MonadTrans, lift )
+import Control.Monad.State  ( StateT )
+import Control.Monad.Trans  ( MonadTrans, lift )
+import Control.Monad.Writer ( WriterT )
 
 import qualified Data.List as List
 import qualified Data.Map  as Map
@@ -63,6 +64,7 @@ class (MonadPretty m, MonadError TCErr m) => MonadWarning m where
 
 instance MonadWarning m => MonadWarning (ReaderT r m)
 instance MonadWarning m => MonadWarning (StateT s m)
+instance (MonadWarning m, Monoid w) => MonadWarning (WriterT w m)
 
 instance MonadWarning TCM where
   addWarning tcwarn = do
@@ -84,10 +86,18 @@ warning'_ loc w = do
   r <- viewTC eRange
   c <- viewTC eCall
   b <- areWeCaching
-  -- NicifierIssues come with their own error locations.
-  let r' = case w of { NicifierIssue w0 -> getRange w0 ; _ -> r }
+  let r' = case w of
+        -- NicifierIssues come with their own error locations.
+        NicifierIssue w0 -> getRange w0
+        -- ConstructorDoesNotFitInData packages a full TCErr, so skip the sayWhen/Where here.
+        ConstructorDoesNotFitInData{} -> noRange
+        _ -> r
+  let c' = case w of
+        -- ConstructorDoesNotFitInData packages a full TCErr, so skip the sayWhen/Where here.
+        ConstructorDoesNotFitInData{} -> Nothing
+        _ -> c
   let wn = warningName w
-  p <- sayWhen r' c $
+  p <- sayWhen r' c' $
     -- Only benign warnings can be deactivated with -WnoXXX, so don't
     -- display hint for error warnings.
     applyUnless (wn `elem` errorWarnings) (prettyWarningName wn $$) $

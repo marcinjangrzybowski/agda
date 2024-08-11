@@ -1196,6 +1196,15 @@ instance ToConcrete A.ModuleApplication where
     recm <- toConcrete recm
     return $ C.RecordModuleInstance (getRange recm) recm
 
+instance ToConcrete A.RecordDirectives where
+  type ConOfAbs A.RecordDirectives = [C.RecordDirective]
+
+  toConcrete dir = C.ungatherRecordDirectives <$> traverse f dir
+    where
+      f :: A.QName -> AbsToCon (C.Name, IsInstance)
+      f = (,NotInstanceDef) <.> C.unqualify <.> toConcrete
+
+
 instance ToConcrete A.Declaration where
   type ConOfAbs A.Declaration = [C.Declaration]
 
@@ -1265,8 +1274,9 @@ instance ToConcrete A.Declaration where
   toConcrete (A.RecDef  i x uc dir bs t cs) =
     withAbstractPrivate i $
     bindToConcrete (map makeDomainFree $ dataDefParams bs) $ \ tel' -> do
+      dirs <- toConcrete dir
       (x',cs') <- first unsafeQNameToName <$> toConcrete (x, map Constr cs)
-      return [ C.RecordDef (getRange i) x' (dir { recConstructor = Nothing }) (catMaybes tel') cs' ]
+      return [ C.RecordDef (getRange i) x' dirs (catMaybes tel') cs' ]
 
   toConcrete (A.Mutual i ds) = pure . C.Mutual empty <$> declsToConcrete ds
 
@@ -1403,12 +1413,13 @@ instance ToConcrete (UserPattern A.Pattern) where
         | otherwise          -> bindToConcrete (map UserPattern args) $ ret . A.ConP i c
       A.DefP i f args        -> bindToConcrete (map UserPattern args) $ ret . A.DefP i f
       A.PatternSynP i f args -> bindToConcrete (map UserPattern args) $ ret . A.PatternSynP i f
-      A.RecP i args          -> bindToConcrete ((map . fmap) UserPattern args) $ ret . A.RecP i
+      A.RecP i args
+        | conPatOrigin i == ConOSplit -> ret p
+        | otherwise          -> bindToConcrete ((map . fmap) UserPattern args) $ ret . A.RecP i
       A.AsP i x p            -> bindName' (unBind x) $
                                 bindToConcrete (UserPattern p) $ \ p ->
                                 ret (A.AsP i x p)
       A.WithP i p            -> bindToConcrete (UserPattern p) $ ret . A.WithP i
-      A.AnnP i a p           -> bindToConcrete (UserPattern p) $ ret . A.AnnP i a
 
 instance ToConcrete (UserPattern (NamedArg A.Pattern)) where
   type ConOfAbs (UserPattern (NamedArg A.Pattern)) = NamedArg A.Pattern
@@ -1440,11 +1451,13 @@ instance ToConcrete (SplitPattern A.Pattern) where
         | otherwise          -> bindToConcrete (map SplitPattern args) $ ret . A.ConP i c
       A.DefP i f args        -> bindToConcrete (map SplitPattern args) $ ret . A.DefP i f
       A.PatternSynP i f args -> bindToConcrete (map SplitPattern args) $ ret . A.PatternSynP i f
-      A.RecP i args          -> bindToConcrete ((map . fmap) SplitPattern args) $ ret . A.RecP i
+      A.RecP i args
+        | conPatOrigin i == ConOSplit
+                             -> bindToConcrete ((map . fmap) BindingPat args) $ ret . A.RecP i
+        | otherwise          -> bindToConcrete ((map . fmap) SplitPattern args) $ ret . A.RecP i
       A.AsP i x p            -> bindToConcrete (SplitPattern p)  $ \ p ->
                                 ret (A.AsP i x p)
       A.WithP i p            -> bindToConcrete (SplitPattern p) $ ret . A.WithP i
-      A.AnnP i a p           -> bindToConcrete (SplitPattern p) $ ret . A.AnnP i a
 
 instance ToConcrete (SplitPattern (NamedArg A.Pattern)) where
   type ConOfAbs (SplitPattern (NamedArg A.Pattern)) = NamedArg A.Pattern
@@ -1477,7 +1490,6 @@ instance ToConcrete BindingPattern where
                                 bindToConcrete (BindingPat p)  $ \ p ->
                                 ret (A.AsP i (mkBindName x) p)
       A.WithP i p            -> bindToConcrete (BindingPat p) $ ret . A.WithP i
-      A.AnnP i a p           -> bindToConcrete (BindingPat p) $ ret . A.AnnP i a
 
 instance ToConcrete A.Pattern where
   type ConOfAbs A.Pattern = C.Pattern
@@ -1550,8 +1562,6 @@ instance ToConcrete A.Pattern where
         C.RecP (getRange i) <$> mapM (traverse toConcrete) as
 
       A.WithP i p -> C.WithP (getRange i) <$> toConcreteCtx WithArgCtx p
-
-      A.AnnP i a p -> toConcrete p -- TODO: print type annotation
 
     where
 

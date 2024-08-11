@@ -25,6 +25,8 @@ import Prelude hiding ( null )
 import Control.Monad        ( (>=>), (<=<), foldM, forM, forM_, zipWithM, zipWithM_ )
 import Control.Applicative  ( liftA2, liftA3 )
 import Control.Monad.Except ( MonadError(..) )
+import Control.Monad.State  ( StateT, execStateT, get, put )
+import Control.Monad.Trans  ( lift )
 
 import Data.Bifunctor
 import Data.Foldable (traverse_)
@@ -44,7 +46,8 @@ import Agda.Syntax.Concrete.Generic
 import Agda.Syntax.Concrete.Operators
 import Agda.Syntax.Concrete.Pattern
 import Agda.Syntax.Abstract as A
-import Agda.Syntax.Abstract.Pattern as A ( patternVars, checkPatternLinearity, containsAsPattern, lhsCoreApp, lhsCoreWith )
+import Agda.Syntax.Abstract.Pattern as A
+  ( patternVars, checkPatternLinearity, containsAsPattern, lhsCoreApp, lhsCoreWith, noDotOrEqPattern )
 import Agda.Syntax.Abstract.Pretty
 import qualified Agda.Syntax.Internal as I
 import Agda.Syntax.Position
@@ -130,33 +133,6 @@ notAValidLetBinding = locatedTypeError NotAValidLetBinding
 {--------------------------------------------------------------------------
     Helpers
  --------------------------------------------------------------------------}
-
--- | Make sure that there are no dot patterns (called on pattern synonyms).
-noDotorEqPattern :: A.Pattern' e -> ScopeM (A.Pattern' Void)
-noDotorEqPattern = dot
-  where
-    dot :: A.Pattern' e -> ScopeM (A.Pattern' Void)
-    dot = \case
-      A.VarP x               -> pure $ A.VarP x
-      A.ConP i c args        -> A.ConP i c <$> (traverse $ traverse $ traverse dot) args
-      A.ProjP i o d          -> pure $ A.ProjP i o d
-      A.WildP i              -> pure $ A.WildP i
-      A.AsP i x p            -> A.AsP i x <$> dot p
-      A.DotP{}               -> err
-      A.EqualP{}             -> err   -- Andrea: so we also disallow = patterns, reasonable?
-      A.AbsurdP i            -> pure $ A.AbsurdP i
-      A.LitP i l             -> pure $ A.LitP i l
-      A.DefP i f args        -> A.DefP i f <$> (traverse $ traverse $ traverse dot) args
-      A.PatternSynP i c args -> A.PatternSynP i c <$> (traverse $ traverse $ traverse dot) args
-      A.RecP i fs            -> A.RecP i <$> (traverse $ traverse dot) fs
-      A.WithP i p            -> A.WithP i <$> dot p
-      A.AnnP i a p           -> err   -- TODO: should this be allowed?
-    err = typeError DotPatternInPatternSynonym
-
---UNUSED Liang-Ting Chen 2019-07-16
----- | Make sure that there are no dot patterns (WAS: called on pattern synonyms).
---noDotPattern :: String -> A.Pattern' e -> ScopeM (A.Pattern' Void)
---noDotPattern err = traverse $ const $ genericError err
 
 newtype RecordConstructorType = RecordConstructorType [C.Declaration]
 
@@ -1439,7 +1415,7 @@ niceDecls warn ds ret = setCurrentRange ds $ computeFixitiesAndPolarities warn d
   case result of
     Left (DeclarationException loc e) -> do
       reportSLn "error" 2 $ "Error raised at " ++ prettyShow loc
-      throwError $ Exception (getRange e) $ pretty e
+      typeError $ NicifierError e
     Right ds -> ret ds
 
 -- | Wrapper to avoid instance conflict with generic list instance.
@@ -1617,7 +1593,6 @@ instance ToAbstract LetDef where
             A.RecP _ fs          -> mapM_ (checkValidLetPattern . _exprFieldA) fs
             A.EqualP{}           -> no
             A.WithP{}            -> no
-            A.AnnP _ _ p         -> checkValidLetPattern p
           where
           yes = return ()
           no  = genericError "Not a valid let pattern"
@@ -1806,16 +1781,17 @@ instance ToAbstract NiceDeclaration where
         conName d = errorNotConstrDecl d
 
   -- Record definitions (mucho interesting)
-    C.NiceRecDef r o a _ uc x (RecordDirectives ind eta pat cm) pars fields -> notAffectedByOpaque $ do
+    C.NiceRecDef r o a _ uc x directives pars fields -> notAffectedByOpaque $ do
       reportSLn "scope.rec.def" 20 ("checking " ++ show o ++ " RecDef for " ++ prettyShow x)
       -- #3008: Termination pragmas are ignored in records
       checkNoTerminationPragma InRecordDef fields
+      RecordDirectives ind eta pat cm <- gatherRecordDirectives directives
       -- Andreas, 2020-04-19, issue #4560
       -- 'pattern' declaration is incompatible with 'coinductive' or 'eta-equality'.
       pat <- case pat of
         Just r
           | Just (Ranged _ CoInductive) <- ind -> Nothing <$ warn "coinductive"
-          | Just YesEta                 <- eta -> Nothing <$ warn "eta"
+          | Just (Ranged _ YesEta)      <- eta -> Nothing <$ warn "eta"
           | otherwise -> return pat
           where warn = setCurrentRange r . warning . UselessPatternDeclarationForRecord
         Nothing -> return pat
@@ -2081,7 +2057,7 @@ instance ToAbstract NiceDeclaration where
            typeError $ RepeatedVariablesInPattern ys
          -- Bind the pattern variables accumulated by @ToAbstract Pattern@ applied to the rhs.
          bindVarsToBind
-         p <- noDotorEqPattern p
+         p <- A.noDotOrEqPattern (typeError DotPatternInPatternSynonym) p
          as <- mapM checkPatSynParam as
          unlessNull (patternVars p List.\\ map whThing as) $ \ xs -> do
            typeError $ UnboundVariablesInPatternSynonym xs
@@ -2171,6 +2147,9 @@ instance ToAbstract NiceDeclaration where
 
       interestingOpaqueDecl _ = False
 
+-- ** Helper functions for @opaque@
+------------------------------------------------------------------------
+
 -- | Add a 'QName' to the set of declarations /contained in/ the current
 -- opaque block.
 unfoldFunction :: A.QName -> ScopeM ()
@@ -2196,6 +2175,9 @@ notAffectedByOpaque k = do
   unless t $
     maybe (pure ()) (const (warning NotAffectedByOpaque)) =<< asksTC envCurrentOpaqueId
   notUnderOpaque k
+
+-- * Helper functions for @variable@ generalization
+------------------------------------------------------------------------
 
 unGeneralized :: A.Expr -> (Set.Set I.QName, A.Expr)
 unGeneralized (A.Generalized s t) = (s, t)
@@ -2272,6 +2254,33 @@ instance ToAbstract GenTelAndType where
                           (,) <$> toAbstract tel <*> toAbstract t
     return (A.GeneralizeTel binds (catMaybes tel), t)
 
+-- ** Record directives
+------------------------------------------------------------------------
+
+-- | Check for duplicate record directives.
+gatherRecordDirectives :: [C.RecordDirective] -> ScopeM C.RecordDirectives
+gatherRecordDirectives ds = mapM_ gatherRecordDirective ds `execStateT` empty
+
+-- | Fill the respective field of 'C.RecordDirectives' by the given 'C.RecordDirective'.
+--
+-- Ignore it with a dead-code warning if the field is already filled.
+--
+gatherRecordDirective :: C.RecordDirective -> StateT C.RecordDirectives ScopeM ()
+gatherRecordDirective d = do
+  dir@RecordDirectives{ recInductive = ind, recHasEta = eta, recPattern = pat, recConstructor = con } <- get
+  case d of
+    Induction ri         -> assertNothing ind $ put dir{ recInductive   = Just ri }
+    Eta re               -> assertNothing eta $ put dir{ recHasEta      = Just re }
+    PatternOrCopattern r -> assertNothing pat $ put dir{ recPattern     = Just r  }
+    C.Constructor x inst -> assertNothing con $ put dir{ recConstructor = Just (x, inst) }
+  where
+    assertNothing :: Maybe a -> StateT C.RecordDirectives ScopeM () -> StateT C.RecordDirectives ScopeM ()
+    assertNothing Nothing cont = cont
+    assertNothing Just{}  _    = lift $ setCurrentRange d $ warning $ DuplicateRecordDirective d
+
+-- ** Helper functions for name clashes
+------------------------------------------------------------------------
+
 -- | Make sure definition is in same module as signature.
 class LivesInCurrentModule a where
   livesInCurrentModule :: a -> ScopeM ()
@@ -2307,6 +2316,9 @@ clashIfModuleAlreadyDefinedInCurrentModule x ax = do
 lookupModuleInCurrentModule :: C.Name -> ScopeM [AbstractModule]
 lookupModuleInCurrentModule x =
   List1.toList' . Map.lookup x . nsModules . thingsInScope [PublicNS, PrivateNS] <$> getCurrentScope
+
+-- ** Helper functions for constructor declarations
+------------------------------------------------------------------------
 
 data DataConstrDecl = DataConstrDecl A.ModuleName IsAbstract Access C.NiceDeclaration
 
@@ -2392,6 +2404,9 @@ instance ToAbstract DataConstrDecl where
 errorNotConstrDecl :: C.NiceDeclaration -> ScopeM a
 errorNotConstrDecl d = setCurrentRange d $
   typeError $ IllegalDeclarationInDataDefinition $ notSoNiceDeclarations d
+
+-- ** More scope checking
+------------------------------------------------------------------------
 
 instance ToAbstract C.Pragma where
   type AbsOfCon C.Pragma = [A.Pragma]
@@ -2847,7 +2862,7 @@ instance ToAbstract RightHandSide where
                    toAbstract (RightHandSide [] es cs rhs NoWhere)
     return $ RewriteRHS' eqs rhs ds
   toAbstract (RightHandSide [] []    (_  , _:_) _          _)  = __IMPOSSIBLE__
-  toAbstract (RightHandSide [] (_:_) _         (C.RHS _)   _)  = typeError $ BothWithAndRHS
+  toAbstract (RightHandSide [] (_:_) _         (C.RHS _)   _)  = __IMPOSSIBLE__  -- see test/Fail/BothWithAndRHS: triggers MissingWithClauses first
   toAbstract (RightHandSide [] []    (_  , []) rhs         NoWhere) = toAbstract rhs
   toAbstract (RightHandSide [] nes   (lv , c:cs) C.AbsurdRHS NoWhere) = do
     let (ns , es) = unzipWith (\ (Named nm e) -> (NewName WithBound . C.mkBoundName_ <$> nm, e)) nes
@@ -3122,7 +3137,6 @@ applyAPattern p0 p ps = do
       A.RecP{}    -> failure
       A.EqualP{}  -> failure
       A.WithP{}   -> failure
-      A.AnnP{}    -> failure
   where
     failure = typeError $ InvalidPattern p0
 
@@ -3242,7 +3256,7 @@ instance ToAbstract C.Pattern where
         _ -> fallback
 
     toAbstract p0@(C.AbsurdP r)    = return $ A.AbsurdP (PatRange r)
-    toAbstract (C.RecP r fs)       = A.RecP (PatRange r) <$> mapM (traverse toAbstract) fs
+    toAbstract (C.RecP r fs)       = A.RecP (ConPatInfo ConORec (PatRange r) ConPatEager) <$> mapM (traverse toAbstract) fs
     toAbstract (C.WithP r p)       = A.WithP (PatRange r) <$> toAbstract p
 
 -- | An argument @OpApp C.Expr@ to an operator can have binders,

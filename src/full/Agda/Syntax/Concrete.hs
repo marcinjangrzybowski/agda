@@ -45,7 +45,6 @@ module Agda.Syntax.Concrete
     -- * Declarations
   , Declaration(..)
   , isPragma
-  , isRecordDirective
   , RecordDirective(..)
   , RecordDirectives
   , ModuleApplication(..)
@@ -64,6 +63,7 @@ module Agda.Syntax.Concrete
   , ThingWithFixity(..)
   , HoleContent, HoleContent'(..)
   , spanAllowedBeforeModule
+  , ungatherRecordDirectives
   )
   where
 
@@ -71,7 +71,10 @@ import Prelude hiding (null)
 
 import Control.DeepSeq
 
+import Data.Bifunctor   ( second )
+import Data.DList       ( DList )
 import qualified Data.DList as DL
+import Data.Function    ( (&) )
 import Data.Functor.Identity
 import Data.Maybe
 import Data.Set         ( Set  )
@@ -466,6 +469,15 @@ data RecordDirective
 
 type RecordDirectives = RecordDirectives' (Name, IsInstance)
 
+ungatherRecordDirectives :: RecordDirectives -> [RecordDirective]
+ungatherRecordDirectives (RecordDirectives ind eta pat con) = catMaybes
+  [ Induction <$> ind
+  , Eta <$> eta
+  , PatternOrCopattern <$> pat
+  , uncurry Constructor <$> con
+  ]
+
+
 {-| The representation type of a declaration. The comments indicate
     which type in the intended family the constructor targets.
 -}
@@ -482,10 +494,9 @@ data Declaration
                 [TypeSignatureOrInstanceBlock]
   | DataDef     Range Name [LamBinding] [TypeSignatureOrInstanceBlock]
   | RecordSig   Range Erased Name [LamBinding] Expr -- ^ lone record signature in mutual block
-  | RecordDef   Range Name RecordDirectives [LamBinding] [Declaration]
-  | Record      Range Erased Name RecordDirectives [LamBinding] Expr
+  | RecordDef   Range Name [RecordDirective] [LamBinding] [Declaration]
+  | Record      Range Erased Name [RecordDirective] [LamBinding] Expr
                 [Declaration]
-  | RecordDirective RecordDirective -- ^ Should not survive beyond the parser
   | Infix Fixity (List1 Name)
   | Syntax      Name Notation -- ^ notation declaration for a name
   | PatternSyn  Range Name [WithHiding Name] Pattern
@@ -522,12 +533,6 @@ data Declaration
     -- ^ @unfolding ...@
   deriving Eq
 
--- | Extract a record directive
-isRecordDirective :: Declaration -> Maybe RecordDirective
-isRecordDirective (RecordDirective r) = Just r
-isRecordDirective (InstanceB r [RecordDirective (Constructor n p)]) = Just (Constructor n (InstanceDef r))
-isRecordDirective _ = Nothing
-
 -- | Return 'Pragma' if 'Declaration' is 'Pragma'.
 {-# SPECIALIZE isPragma :: Declaration -> Maybe Pragma #-}
 {-# SPECIALIZE isPragma :: Declaration -> [Pragma] #-}
@@ -551,7 +556,6 @@ isPragma = \case
     Data _ _ _ _ _ _        -> empty
     DataDef _ _ _ _         -> empty
     RecordSig _ _ _ _ _     -> empty
-    RecordDirective _       -> empty
     Infix _ _               -> empty
     Syntax _ _              -> empty
     PatternSyn _ _ _ _      -> empty
@@ -687,13 +691,12 @@ appView e = f (DL.toList ess)
   where
     (f, ess) = appView' e
 
+    appView' :: Expr -> ([NamedArg Expr] -> AppView, DList (NamedArg Expr))
     appView' = \case
-      App r e1 e2      -> vApp (appView' e1) e2
+      App r e1 e2      -> appView' e1 & second (`DL.snoc` e2)
       RawApp _ (List2 e1 e2 es)
                        -> (AppView e1, DL.fromList (map arg (e2 : es)))
       e                -> (AppView e, mempty)
-
-    vApp (f, es) arg = (f, es `DL.snoc` arg)
 
     arg (HiddenArg   _ e) = hide         $ defaultArg e
     arg (InstanceArg _ e) = makeInstance $ defaultArg e
@@ -962,7 +965,6 @@ instance HasRange Declaration where
   getRange (RecordSig r _ _ _ _)   = r
   getRange (RecordDef r _ _ _ _)   = r
   getRange (Record r _ _ _ _ _ _)  = r
-  getRange (RecordDirective r)     = getRange r
   getRange (Mutual kwr ds)         = fuseRange kwr ds
   getRange (InterleavedMutual kwr ds) = fuseRange kwr ds
   getRange (LoneConstructor kwr ds)= fuseRange kwr ds
@@ -1116,7 +1118,6 @@ instance KillRange Declaration where
   killRange (DataDef _ n l c)       = killRangeN (DataDef noRange) n l c
   killRange (RecordSig _ er n l e)  = killRangeN (RecordSig noRange) er n l e
   killRange (RecordDef _ n dir k d) = killRangeN (RecordDef noRange) n dir k d
-  killRange (RecordDirective a)     = killRangeN RecordDirective a
   killRange (Record _ er n dir k e d)
                                     = killRangeN (Record noRange) er n dir k e d
   killRange (Infix f n)             = killRangeN Infix f n
@@ -1346,7 +1347,6 @@ instance NFData Declaration where
   rnf (RecordSig _ a b c d)   = rnf a `seq` rnf b `seq` rnf c `seq` rnf d
   rnf (RecordDef _ a b c d)   = rnf (a, b, c, d)
   rnf (Record _ a b c d e f)  = rnf (a, b, c, d, e, f)
-  rnf (RecordDirective a)     = rnf a
   rnf (Infix a b)             = rnf a `seq` rnf b
   rnf (Syntax a b)            = rnf a `seq` rnf b
   rnf (PatternSyn _ a b c)    = rnf a `seq` rnf b `seq` rnf c

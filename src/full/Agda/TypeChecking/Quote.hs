@@ -263,12 +263,15 @@ quotingKit = do
           Lam info t -> lam !@ quoteHiding (getHiding info) @@ quoteAbs quoteTerm t
           Def x es   -> do
             defn <- getConstInfo x
+            patlams <- viewTC ePrintingPatternLambdas
+            let isSeenPatLam = elem x patlams
             r <- isReconstructed
             -- #2220: remember to restore dropped parameters
             let
               conOrProjPars = defParameters defn r
               ts = fromMaybe __IMPOSSIBLE__ $ allApplyElims es
-              qx Function{ funExtLam = Just (ExtLamInfo m False Strict.Nothing), funClauses = cs } = do
+              qx Function{ funExtLam = Just (ExtLamInfo m False Strict.Nothing), funClauses = cs }
+                | not isSeenPatLam = locallyTC ePrintingPatternLambdas (x :) $ do
                     -- An extended lambda should not have any extra parameters!
                     unless (null conOrProjPars) __IMPOSSIBLE__
                     cs <- return $ filter (not . generatedClause) cs
@@ -276,7 +279,8 @@ quotingKit = do
                     let (pars, args) = splitAt n ts
                     extlam !@ list (map (quoteClause (Left ()) . (`apply` pars)) cs)
                            @@ list (map (quoteArg quoteTerm) args)
-              qx df@Function{ funExtLam = Just (ExtLamInfo _ True Strict.Nothing), funCompiled = Just Fail{}, funClauses = [cl] } = do
+              qx df@Function{ funExtLam = Just (ExtLamInfo _ True Strict.Nothing), funCompiled = Just Fail{}, funClauses = [cl] }
+                | not isSeenPatLam = locallyTC ePrintingPatternLambdas (x :) $ do
                     -- See also corresponding code in InternalToAbstract
                     let n = length (namedClausePats cl) - 1
                         pars = take n ts
@@ -340,8 +344,9 @@ quotingKit = do
             agdaDefinitionFunDef !@ quoteList (quoteClause (Left ())) cs
           Primitive{}   -> pure agdaDefinitionPrimitive
           PrimitiveSort{} -> pure agdaDefinitionPrimitive
-          Constructor{conData = d} ->
-            agdaDefinitionDataConstructor !@! quoteName d
+          Constructor{conData = d, conSrcCon = c} -> do
+            q <- getQuantity <$> getConstInfo (conName c)
+            agdaDefinitionDataConstructor !@! quoteName d @@ quoteQuantity q
 
   return $ QuotingKit quoteTerm quoteType (quoteDom quoteType) quoteDefn quoteList
 

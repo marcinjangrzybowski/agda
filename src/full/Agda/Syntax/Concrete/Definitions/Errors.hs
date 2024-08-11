@@ -58,7 +58,27 @@ data DeclarationException'
       -- ^ A declaration that breaks an implicit mutual block (named by
       -- the String argument) was present while the given lone type
       -- signatures were still without their definitions.
-    deriving Show
+    deriving (Show, Generic)
+
+-- | The name of the error.
+declarationExceptionString :: DeclarationException' -> String
+declarationExceptionString = \case
+  MultipleEllipses            {} -> "MultipleEllipses"
+  InvalidName                 {} -> "InvalidName"
+  DuplicateDefinition         {} -> "DuplicateDefinition"
+  DuplicateAnonDeclaration    {} -> "DuplicateAnonDeclaration"
+  MissingWithClauses          {} -> "MissingWithClauses"
+  WrongDefinition             {} -> "WrongDefinition"
+  DeclarationPanic            {} -> "DeclarationPanic"
+  WrongContentBlock           {} -> "WrongContentBlock"
+  AmbiguousFunClauses         {} -> "AmbiguousFunClauses"
+  AmbiguousConstructor        {} -> "AmbiguousConstructor"
+  InvalidMeasureMutual        {} -> "InvalidMeasureMutual"
+  UnquoteDefRequiresSignature {} -> "UnquoteDefRequiresSignature"
+  BadMacroDef                 {} -> "BadMacroDef"
+  UnfoldingOutsideOpaque      {} -> "UnfoldingOutsideOpaque"
+  OpaqueInMutual              {} -> "OpaqueInMutual"
+  DisallowedInterleavedMutual {} -> "DisallowedInterleavedMutual"
 
 ------------------------------------------------------------------------
 -- Warnings
@@ -100,8 +120,6 @@ data DeclarationWarning'
   | InvalidNoUniverseCheckPragma Range
       -- ^ A {-\# NO_UNIVERSE_CHECK \#-} pragma
       --   that does not apply to a data or record type.
-  | InvalidRecordDirective Range
-      -- ^ A record directive outside of a record / below existing fields.
   | InvalidTerminationCheckPragma Range
       -- ^ A {-\# TERMINATING \#-} and {-\# NON_TERMINATING \#-} pragma
       --   that does not apply to any function.
@@ -166,7 +184,6 @@ declarationWarningName' = \case
   InvalidConstructorBlock{}         -> InvalidConstructorBlock_
   InvalidNoPositivityCheckPragma{}  -> InvalidNoPositivityCheckPragma_
   InvalidNoUniverseCheckPragma{}    -> InvalidNoUniverseCheckPragma_
-  InvalidRecordDirective{}          -> InvalidRecordDirective_
   InvalidTerminationCheckPragma{}   -> InvalidTerminationCheckPragma_
   InvalidCoverageCheckPragma{}      -> InvalidCoverageCheckPragma_
   MissingDeclarations{}             -> MissingDeclarations_
@@ -217,7 +234,6 @@ unsafeDeclarationWarning' = \case
   InvalidConstructorBlock{}         -> False
   InvalidNoPositivityCheckPragma{}  -> False
   InvalidNoUniverseCheckPragma{}    -> False
-  InvalidRecordDirective{}          -> False
   InvalidTerminationCheckPragma{}   -> False
   InvalidCoverageCheckPragma{}      -> False
   MissingDeclarations{}             -> True  -- not safe
@@ -331,7 +347,6 @@ instance HasRange DeclarationWarning' where
     InvalidCoverageCheckPragma r       -> r
     InvalidNoPositivityCheckPragma r   -> r
     InvalidNoUniverseCheckPragma r     -> r
-    InvalidRecordDirective r           -> r
     InvalidTerminationCheckPragma r    -> r
     MissingDeclarations xs             -> getRange xs
     MissingDefinitions xs              -> getRange xs
@@ -479,9 +494,6 @@ instance Pretty DeclarationWarning' where
 
     HiddenGeneralize _ -> fsep $ pwords "Declaring a variable as hidden has no effect in a variable block. Generalization never introduces visible arguments."
 
-    InvalidRecordDirective{} -> fsep $
-      pwords "Record directives can only be used inside record definitions and before field declarations."
-
     InvalidTerminationCheckPragma _ -> fsep $
       pwords "Termination checking pragmas can only precede a function definition or a mutual block (that contains a function definition)."
 
@@ -531,5 +543,6 @@ instance Pretty DeclarationWarning' where
     where
       unsafePragma s = fsep $ ["Cannot", "use", s] ++ pwords "pragma with safe flag."
 
+instance NFData DeclarationException'
 instance NFData DeclarationWarning
 instance NFData DeclarationWarning'

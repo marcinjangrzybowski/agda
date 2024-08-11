@@ -32,6 +32,7 @@ instance EmbPrj Warning where
     UnreachableClauses a b                -> icodeN 0 UnreachableClauses a b
     CoverageIssue a b                     -> __IMPOSSIBLE__
     NotStrictlyPositive a b               -> __IMPOSSIBLE__
+    ConstructorDoesNotFitInData{}         -> __IMPOSSIBLE__
     UnsolvedMetaVariables a               -> __IMPOSSIBLE__
     UnsolvedInteractionMetas a            -> __IMPOSSIBLE__
     UnsolvedConstraints a                 -> __IMPOSSIBLE__
@@ -44,11 +45,12 @@ instance EmbPrj Warning where
     SafeFlagPostulate a                   -> __IMPOSSIBLE__
     SafeFlagPragma a                      -> __IMPOSSIBLE__
     SafeFlagWithoutKFlagPrimEraseEquality -> __IMPOSSIBLE__
+    DuplicateRecordDirective a            -> icodeN 5 DuplicateRecordDirective a
     DeprecationWarning a b c              -> icodeN 6 DeprecationWarning a b c
     NicifierIssue a                       -> icodeN 7 NicifierIssue a
     InversionDepthReached a               -> icodeN 8 InversionDepthReached a
     UserWarning a                         -> icodeN 9 UserWarning a
-    AbsurdPatternRequiresNoRHS a          -> icodeN 10 AbsurdPatternRequiresNoRHS a
+    AbsurdPatternRequiresAbsentRHS a      -> icodeN 10 AbsurdPatternRequiresAbsentRHS a
     ModuleDoesntExport a b c d            -> icodeN 11 ModuleDoesntExport a b c d
     LibraryWarning a                      -> icodeN 12 LibraryWarning a
     CoverageNoExactSplit a b              -> icodeN 13 CoverageNoExactSplit a b
@@ -97,9 +99,14 @@ instance EmbPrj Warning where
     PragmaCompileList                           -> __IMPOSSIBLE__
     PragmaCompileMaybe                          -> __IMPOSSIBLE__
     NoMain _                                    -> __IMPOSSIBLE__
-    DuplicateRewriteRule a                      -> icodeN 53 DuplicateRewriteRule a
+    IllegalRewriteRule a b                      -> icodeN 53 IllegalRewriteRule a b
     MissingTypeSignatureForOpaque a b           -> icodeN 54 MissingTypeSignatureForOpaque a b
     ConflictingPragmaOptions a b                -> icodeN 55 ConflictingPragmaOptions a b
+    CustomBackendWarning a b                    -> icodeN 56 CustomBackendWarning a b
+    CoinductiveEtaRecord a                      -> icodeN 57 CoinductiveEtaRecord a
+    WithClauseProjectionFixityMismatch a b c d  -> icodeN 58 WithClauseProjectionFixityMismatch a b c d
+    InvalidDisplayForm a b                      -> icodeN 59 InvalidDisplayForm a b
+    TooManyArgumentsToSort a b                  -> __IMPOSSIBLE__
 
   value = vcase $ \ case
     [0, a, b]            -> valuN UnreachableClauses a b
@@ -107,11 +114,12 @@ instance EmbPrj Warning where
     [2]                  -> valuN EmptyRewritePragma
     [3]                  -> valuN UselessPublic
     [4, a]               -> valuN UselessInline a
+    [5, a]               -> valuN DuplicateRecordDirective a
     [6, a, b, c]         -> valuN DeprecationWarning a b c
     [7, a]               -> valuN NicifierIssue a
     [8, a]               -> valuN InversionDepthReached a
     [9, a]               -> valuN UserWarning a
-    [10, a]              -> valuN AbsurdPatternRequiresNoRHS a
+    [10, a]              -> valuN AbsurdPatternRequiresAbsentRHS a
     [11, a, b, c, d]     -> valuN ModuleDoesntExport a b c d
     [12, a]              -> valuN LibraryWarning a
     [13, a, b]           -> valuN CoverageNoExactSplit a b
@@ -154,9 +162,51 @@ instance EmbPrj Warning where
     [50, a]              -> valuN ConfluenceCheckingIncompleteBecauseOfMeta a
     [51, a]              -> valuN BuiltinDeclaresIdentifier a
     [52]                 -> valuN ConfluenceForCubicalNotSupported
-    [53, a]              -> valuN DuplicateRewriteRule a
+    [53, a, b]           -> valuN IllegalRewriteRule a b
     [54, a, b]           -> valuN MissingTypeSignatureForOpaque a b
     [55, a, b]           -> valuN ConflictingPragmaOptions a b
+    [56, a, b]           -> valuN CustomBackendWarning a b
+    [57, a]              -> valuN CoinductiveEtaRecord a
+    [58, a, b, c, d]     -> valuN WithClauseProjectionFixityMismatch a b c d
+    [59, a, b]           -> valuN InvalidDisplayForm a b
+    _ -> malformed
+
+instance EmbPrj IllegalRewriteRuleReason where
+  icod_ = \case
+    LHSNotDefinitionOrConstructor               -> icodeN 0 LHSNotDefinitionOrConstructor
+    VariablesNotBoundByLHS a                    -> icodeN 1 VariablesNotBoundByLHS a
+    VariablesBoundMoreThanOnce a                -> icodeN 2 VariablesBoundMoreThanOnce a
+    LHSReduces a b                              -> icodeN 3 LHSReduces a b
+    HeadSymbolIsProjection a                    -> icodeN 4 HeadSymbolIsProjection a
+    HeadSymbolIsProjectionLikeFunction a        -> icodeN 5 HeadSymbolIsProjectionLikeFunction a
+    HeadSymbolIsTypeConstructor a               -> icodeN 6 HeadSymbolIsTypeConstructor a
+    HeadSymbolContainsMetas a                   -> icodeN 7 HeadSymbolContainsMetas a
+    ConstructorParametersNotGeneral a b         -> icodeN 8 ConstructorParametersNotGeneral a b
+    ContainsUnsolvedMetaVariables a             -> icodeN 9 ContainsUnsolvedMetaVariables a
+    BlockedOnProblems a                         -> icodeN 10 BlockedOnProblems a
+    RequiresDefinitions a                       -> icodeN 11 RequiresDefinitions a
+    DoesNotTargetRewriteRelation                -> icodeN 12 DoesNotTargetRewriteRelation
+    BeforeFunctionDefinition                    -> icodeN 13 BeforeFunctionDefinition
+    BeforeMutualFunctionDefinition a            -> icodeN 14 BeforeMutualFunctionDefinition a
+    DuplicateRewriteRule                        -> icodeN 15 DuplicateRewriteRule
+
+  value = vcase $ \case
+    [0]       -> valuN LHSNotDefinitionOrConstructor
+    [1, a]    -> valuN VariablesNotBoundByLHS a
+    [2, a]    -> valuN VariablesBoundMoreThanOnce a
+    [3, a, b] -> valuN LHSReduces a b
+    [4, a]    -> valuN HeadSymbolIsProjection a
+    [5, a]    -> valuN HeadSymbolIsProjectionLikeFunction a
+    [6, a]    -> valuN HeadSymbolIsTypeConstructor a
+    [7, a]    -> valuN HeadSymbolContainsMetas a
+    [8, a, b] -> valuN ConstructorParametersNotGeneral a b
+    [9, a]    -> valuN ContainsUnsolvedMetaVariables a
+    [10, a]   -> valuN BlockedOnProblems a
+    [11, a]   -> valuN RequiresDefinitions a
+    [12]      -> valuN DoesNotTargetRewriteRelation
+    [13]      -> valuN BeforeFunctionDefinition
+    [14, a]   -> valuN BeforeMutualFunctionDefinition a
+    [15]      -> valuN DuplicateRewriteRule
     _ -> malformed
 
 instance EmbPrj OptionWarning where
@@ -238,7 +288,7 @@ instance EmbPrj DeclarationWarning' where
     OpenPublicAbstract r              -> icodeN 26 OpenPublicAbstract r
     OpenPublicPrivate r               -> icodeN 27 OpenPublicPrivate r
     EmptyConstructor a                -> icodeN 28 EmptyConstructor a
-    InvalidRecordDirective a          -> icodeN 29 InvalidRecordDirective a
+    -- 29 removed
     InvalidConstructor a              -> icodeN 30 InvalidConstructor a
     InvalidConstructorBlock a         -> icodeN 31 InvalidConstructorBlock a
     MissingDeclarations a             -> icodeN 32 MissingDeclarations a
@@ -283,7 +333,7 @@ instance EmbPrj DeclarationWarning' where
     [26,r]   -> valuN OpenPublicAbstract r
     [27,r]   -> valuN OpenPublicPrivate r
     [28,r]   -> valuN EmptyConstructor r
-    [29,r]   -> valuN InvalidRecordDirective r
+    -- 29 removed
     [30,r]   -> valuN InvalidConstructor r
     [31,r]   -> valuN InvalidConstructorBlock r
     [32,r]   -> valuN MissingDeclarations r
@@ -392,7 +442,7 @@ instance EmbPrj WarningName where
     InvalidCoverageCheckPragma_                  -> 20
     InvalidNoPositivityCheckPragma_              -> 21
     InvalidNoUniverseCheckPragma_                -> 22
-    InvalidRecordDirective_                      -> 23
+    DuplicateRecordDirective_                    -> 23
     InvalidTerminationCheckPragma_               -> 24
     MissingDeclarations_                         -> 25
     MissingDefinitions_                          -> 26
@@ -409,7 +459,7 @@ instance EmbPrj WarningName where
     UselessAbstract_                             -> 37
     UselessInstance_                             -> 38
     UselessPrivate_                              -> 39
-    AbsurdPatternRequiresNoRHS_                  -> 40
+    AbsurdPatternRequiresAbsentRHS_                  -> 40
     AsPatternShadowsConstructorOrPatternSynonym_ -> 41
     CantGeneralizeOverSorts_                     -> 42
     ClashesViaRenaming_                          -> 43
@@ -485,6 +535,27 @@ instance EmbPrj WarningName where
     UselessMacro_                                -> 114
     WarningProblem_                              -> 115
     ConflictingPragmaOptions_                    -> 116
+    ConstructorDoesNotFitInData_                 -> 117
+    CustomBackendWarning_                        -> 118
+    CoinductiveEtaRecord_                        -> 119
+    RewriteLHSNotDefinitionOrConstructor_             -> 120
+    RewriteVariablesNotBoundByLHS_                    -> 121
+    RewriteVariablesBoundMoreThanOnce_                -> 122
+    RewriteLHSReduces_                                -> 123
+    RewriteHeadSymbolIsProjection_                    -> 124
+    RewriteHeadSymbolIsProjectionLikeFunction_        -> 125
+    RewriteHeadSymbolIsTypeConstructor_               -> 126
+    RewriteHeadSymbolContainsMetas_                   -> 127
+    RewriteConstructorParametersNotGeneral_           -> 128
+    RewriteContainsUnsolvedMetaVariables_             -> 129
+    RewriteBlockedOnProblems_                         -> 130
+    RewriteRequiresDefinitions_                       -> 131
+    RewriteDoesNotTargetRewriteRelation_              -> 132
+    RewriteBeforeFunctionDefinition_                  -> 133
+    RewriteBeforeMutualFunctionDefinition_            -> 134
+    WithClauseProjectionFixityMismatch_               -> 135
+    InvalidDisplayForm_                             -> 136
+    TooManyArgumentsToSort_                           -> 137
 
   value = \case
     0   -> return OverlappingTokensWarning_
@@ -510,7 +581,7 @@ instance EmbPrj WarningName where
     20  -> return InvalidCoverageCheckPragma_
     21  -> return InvalidNoPositivityCheckPragma_
     22  -> return InvalidNoUniverseCheckPragma_
-    23  -> return InvalidRecordDirective_
+    23  -> return DuplicateRecordDirective_
     24  -> return InvalidTerminationCheckPragma_
     25  -> return MissingDeclarations_
     26  -> return MissingDefinitions_
@@ -527,7 +598,7 @@ instance EmbPrj WarningName where
     37  -> return UselessAbstract_
     38  -> return UselessInstance_
     39  -> return UselessPrivate_
-    40  -> return AbsurdPatternRequiresNoRHS_
+    40  -> return AbsurdPatternRequiresAbsentRHS_
     41  -> return AsPatternShadowsConstructorOrPatternSynonym_
     42  -> return CantGeneralizeOverSorts_
     43  -> return ClashesViaRenaming_
@@ -603,6 +674,27 @@ instance EmbPrj WarningName where
     114 -> return UselessMacro_
     115 -> return WarningProblem_
     116 -> return ConflictingPragmaOptions_
+    117 -> return ConstructorDoesNotFitInData_
+    118 -> return CustomBackendWarning_
+    119 -> return CoinductiveEtaRecord_
+    120 -> return RewriteLHSNotDefinitionOrConstructor_
+    121 -> return RewriteVariablesNotBoundByLHS_
+    122 -> return RewriteVariablesBoundMoreThanOnce_
+    123 -> return RewriteLHSReduces_
+    124 -> return RewriteHeadSymbolIsProjection_
+    125 -> return RewriteHeadSymbolIsProjectionLikeFunction_
+    126 -> return RewriteHeadSymbolIsTypeConstructor_
+    127 -> return RewriteHeadSymbolContainsMetas_
+    128 -> return RewriteConstructorParametersNotGeneral_
+    129 -> return RewriteContainsUnsolvedMetaVariables_
+    130 -> return RewriteBlockedOnProblems_
+    131 -> return RewriteRequiresDefinitions_
+    132 -> return RewriteDoesNotTargetRewriteRelation_
+    133 -> return RewriteBeforeFunctionDefinition_
+    134 -> return RewriteBeforeMutualFunctionDefinition_
+    135 -> return WithClauseProjectionFixityMismatch_
+    136 -> return InvalidDisplayForm_
+    137 -> return TooManyArgumentsToSort_
     _   -> malformed
 
 
