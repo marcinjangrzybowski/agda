@@ -29,11 +29,14 @@ import qualified Agda.Syntax.Reflected as R
 import qualified Agda.Syntax.Abstract as A
 import Agda.Syntax.Abstract.Views
 import Agda.Syntax.Translation.InternalToAbstract
+import Agda.Syntax.Translation.ConcreteToAbstract
 import Agda.Syntax.Literal
+import qualified Agda.Syntax.Concrete as C
 import Agda.Syntax.Position
 import Agda.Syntax.Info as Info
 import Agda.Syntax.Translation.ReflectedToAbstract
 import Agda.Syntax.Scope.Base (KindOfName(ConName, DataName))
+import Agda.Syntax.Parser
 
 import Agda.Interaction.Library ( ExeName )
 import Agda.Interaction.Options ( optTrustedExecutables, optAllowExec )
@@ -53,6 +56,7 @@ import Agda.TypeChecking.Primitive
 import Agda.TypeChecking.ReconstructParameters
 import Agda.TypeChecking.CheckInternal
 import Agda.TypeChecking.InstanceArguments
+import Agda.TypeChecking.Warnings
 
 import {-# SOURCE #-} Agda.TypeChecking.Rules.Term
 import {-# SOURCE #-} Agda.TypeChecking.Rules.Def
@@ -607,6 +611,7 @@ evalTCM v = Bench.billTo [Bench.Typing, Bench.Reflection] do
              ]
              failEval
     I.Def f [u, v] ->
+<<<<<<< HEAD
       choice [ (f `isDef` getBuiltin' builtinAgdaTCMUnify,      tcFun2 tcUnify      u v)
              , (f `isDef` getBuiltin' builtinAgdaTCMCheckType,  tcFun2 tcCheckType  u v)
              , (f `isDef` getBuiltin' builtinAgdaTCMDeclareDef, uqFun2 tcDeclareDef u v)
@@ -615,6 +620,17 @@ evalTCM v = Bench.billTo [Bench.Typing, Bench.Reflection] do
              , (f `isDef` getBuiltin' builtinAgdaTCMDefineFun,  uqFun2 tcDefineFun  u v)
              , (f `isDef` getBuiltin' builtinAgdaTCMQuoteOmegaTerm, tcQuoteTerm (sort $ Inf UType 0) (unElim v))
              , (f `isDef` getBuiltin' builtinAgdaTCMPragmaForeign, tcFun2 tcPragmaForeign u v)
+=======
+      choice [ (f `isDef` primAgdaTCMUnify,      tcFun2 tcUnify      u v)
+             , (f `isDef` primAgdaTCMCheckType,  tcFun2 tcCheckType  u v)
+             , (f `isDef` primAgdaTCMDeclareDef, uqFun2 tcDeclareDef u v)
+             , (f `isDef` primAgdaTCMDeclarePostulate, uqFun2 tcDeclarePostulate u v)
+             , (f `isDef` primAgdaTCMDefineData, uqFun2 tcDefineData u v)
+             , (f `isDef` primAgdaTCMDefineFun,  uqFun2 tcDefineFun  u v)
+             , (f `isDef` primAgdaTCMQuoteOmegaTerm, tcQuoteTerm (sort $ Inf UType 0) (unElim v))
+             , (f `isDef` primAgdaTCMPragmaForeign, tcFun2 tcPragmaForeign u v)
+             , (f `isDef` primAgdaTCMCheckFromString, tcFun2 tcCheckFromString u v)
+>>>>>>> mjtg/parse-and-typecheckTC
              ]
              failEval
     I.Def f [l, a, u] ->
@@ -785,6 +801,23 @@ evalTCM v = Bench.billTo [Bench.Typing, Bench.Reflection] do
         locallyReconstructed (quoteTerm v)
       else
         quoteTerm =<< process v
+
+
+    tcCheckFromString :: Text -> R.Type -> TCM Term
+    tcCheckFromString str a = do
+      (C.ExprWhere c wh , _) <- runPM $ parsePosString exprWhereParser (startPos Nothing) (T.unpack str)
+      r <- isReconstructed
+      e <- concreteToAbstract_ c
+      a <- workOnTypes $ locallyReduceAllDefs $ isType_ =<< toAbstract_ a
+
+      v <- checkExpr e a
+      if r then do
+        v <- process v
+        v <- locallyReduceAllDefs $ reconstructParameters a v
+        locallyReconstructed (quoteTerm v)
+      else
+        quoteTerm =<< process v
+
 
     tcQuoteTerm :: Type -> Term -> UnquoteM Term
     tcQuoteTerm a v = liftTCM $ do
