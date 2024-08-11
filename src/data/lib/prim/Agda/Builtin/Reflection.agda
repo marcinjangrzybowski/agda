@@ -346,17 +346,16 @@ postulate
   -- variable (it does not have to be an instance meta).
   getInstances : Meta → TC (List Term)
 
-<<<<<<< HEAD
   -- Try to solve open instance constraints. When wrapped in `noConstraints`,
   -- fails if there are unsolved instance constraints left over that originate
   -- from the current macro invokation. Outside constraints are still attempted,
   -- but failure to solve them are ignored by `noConstraints`.
   solveInstanceConstraints : TC ⊤
-=======
+
   -- Parse and type check the given string against the given type, returning
   -- the resulting term (when successful).
   checkFromStringTC : String → Type → TC Term
->>>>>>> mjtg/parse-and-typecheckTC
+
 
 {-# BUILTIN AGDATCM                           TC                         #-}
 {-# BUILTIN AGDATCMRETURN                     returnTC                   #-}
@@ -401,11 +400,8 @@ postulate
 {-# BUILTIN AGDATCMWORKONTYPES                workOnTypes                #-}
 {-# BUILTIN AGDATCMRUNSPECULATIVE             runSpeculative             #-}
 {-# BUILTIN AGDATCMGETINSTANCES               getInstances               #-}
-<<<<<<< HEAD
 {-# BUILTIN AGDATCMSOLVEINSTANCES             solveInstanceConstraints   #-}
-=======
 {-# BUILTIN AGDATCMCHECKFROMSTRING            checkFromStringTC          #-}
->>>>>>> mjtg/parse-and-typecheckTC
 
 -- All the TC primitives are compiled to functions that return
 -- undefined, rather than just undefined, in an attempt to make sure

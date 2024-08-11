@@ -611,7 +611,6 @@ evalTCM v = Bench.billTo [Bench.Typing, Bench.Reflection] do
              ]
              failEval
     I.Def f [u, v] ->
-<<<<<<< HEAD
       choice [ (f `isDef` getBuiltin' builtinAgdaTCMUnify,      tcFun2 tcUnify      u v)
              , (f `isDef` getBuiltin' builtinAgdaTCMCheckType,  tcFun2 tcCheckType  u v)
              , (f `isDef` getBuiltin' builtinAgdaTCMDeclareDef, uqFun2 tcDeclareDef u v)
@@ -620,17 +619,7 @@ evalTCM v = Bench.billTo [Bench.Typing, Bench.Reflection] do
              , (f `isDef` getBuiltin' builtinAgdaTCMDefineFun,  uqFun2 tcDefineFun  u v)
              , (f `isDef` getBuiltin' builtinAgdaTCMQuoteOmegaTerm, tcQuoteTerm (sort $ Inf UType 0) (unElim v))
              , (f `isDef` getBuiltin' builtinAgdaTCMPragmaForeign, tcFun2 tcPragmaForeign u v)
-=======
-      choice [ (f `isDef` primAgdaTCMUnify,      tcFun2 tcUnify      u v)
-             , (f `isDef` primAgdaTCMCheckType,  tcFun2 tcCheckType  u v)
-             , (f `isDef` primAgdaTCMDeclareDef, uqFun2 tcDeclareDef u v)
-             , (f `isDef` primAgdaTCMDeclarePostulate, uqFun2 tcDeclarePostulate u v)
-             , (f `isDef` primAgdaTCMDefineData, uqFun2 tcDefineData u v)
-             , (f `isDef` primAgdaTCMDefineFun,  uqFun2 tcDefineFun  u v)
-             , (f `isDef` primAgdaTCMQuoteOmegaTerm, tcQuoteTerm (sort $ Inf UType 0) (unElim v))
-             , (f `isDef` primAgdaTCMPragmaForeign, tcFun2 tcPragmaForeign u v)
-             , (f `isDef` primAgdaTCMCheckFromString, tcFun2 tcCheckFromString u v)
->>>>>>> mjtg/parse-and-typecheckTC
+             , (f `isDef` getBuiltin' builtinAgdaTCMCheckFromString, tcFun2 tcCheckFromString u v)
              ]
              failEval
     I.Def f [l, a, u] ->
