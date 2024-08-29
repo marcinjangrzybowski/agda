@@ -32,10 +32,12 @@ import Agda.Syntax.Translation.InternalToAbstract
 import Agda.Syntax.Translation.ConcreteToAbstract
 import Agda.Syntax.Literal
 import qualified Agda.Syntax.Concrete as C
+import Agda.Syntax.Concrete.Name (simpleName)
 import Agda.Syntax.Position
 import Agda.Syntax.Info as Info
 import Agda.Syntax.Translation.ReflectedToAbstract
-import Agda.Syntax.Scope.Base (KindOfName(ConName, DataName))
+import Agda.Syntax.Scope.Base (LocalVar(LocalVar), KindOfName(ConName, DataName),
+                               BindingSource(LambdaBound), scopeLocals)
 import Agda.Syntax.Parser
 
 import Agda.Interaction.Library ( ExeName )
@@ -873,15 +875,18 @@ evalTCM v = Bench.billTo [Bench.Typing, Bench.Reflection] do
         quoteDomWithName (x, t) = toTerm <*> pure (T.pack x, t)
 
     extendCxt :: Text -> Arg R.Type -> UnquoteM a -> UnquoteM a
-    extendCxt s a m = do
+    extendCxt s' a m = withFreshName noRange (T.unpack s') $ \s -> do
       a <- workOnTypes $ locallyReduceAllDefs $ liftTCM $ traverse (isType_ <=< toAbstract_) a
-      liftU1 (addContext (s, domFromArg a :: Dom Type)) m
+      
+      locallyScope scopeLocals ((simpleName (T.unpack s') , LocalVar s LambdaBound []) :)
+          $ liftU1 (addContext (s, domFromArg a :: Dom Type)) m
 
     tcExtendContext :: Term -> Term -> Term -> UnquoteM Term
     tcExtendContext s a m = do
       s <- unquote s
       a <- unquote a
       fmap (strengthen impossible) $ extendCxt s a $ do
+        
         v <- evalTCM $ raise 1 m
         -- 2024-04-20: free variable analysis only really makes sense on normal forms; see #7227
         v <- normalise v
