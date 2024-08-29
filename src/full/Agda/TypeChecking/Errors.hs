@@ -37,9 +37,11 @@ import qualified Data.List as List
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
+import System.FilePath
 import qualified Text.PrettyPrint.Boxes as Boxes
 
 import Agda.Interaction.Options
+import Agda.Interaction.Options.Errors
 
 import Agda.Syntax.Common
 import Agda.Syntax.Concrete.Definitions (notSoNiceDeclarations)
@@ -54,6 +56,7 @@ import Agda.Syntax.Translation.InternalToAbstract
 import Agda.Syntax.Scope.Monad (isDatatypeModule)
 import Agda.Syntax.Scope.Base
 
+import Agda.TypeChecking.Errors.Names (typeErrorString)
 import Agda.TypeChecking.Monad (getConstInfo, typeOfConst)
 import Agda.TypeChecking.Monad.Base
 import Agda.TypeChecking.Monad.Closure
@@ -69,13 +72,14 @@ import Agda.TypeChecking.SizedTypes.Pretty ()
 import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Reduce (instantiate)
 
-import Agda.Interaction.Library.Base (formatLibErrors)
+import Agda.Interaction.Library.Base (formatLibErrors, libFile)
 
 import Agda.Utils.FileName
 import Agda.Utils.Float  ( toStringWithoutDotZero )
 import Agda.Utils.Function
 import Agda.Utils.Functor( for )
 import Agda.Utils.IO     ( showIOException )
+import Agda.Utils.Lens
 import Agda.Utils.List   ( initLast, lastMaybe )
 import Agda.Utils.List1 (List1, pattern (:|))
 import qualified Agda.Utils.List1 as List1
@@ -125,238 +129,11 @@ tcErrString :: TCErr -> String
 tcErrString err =
   unwords . filter (not . null) . (prettyShow (getRange err) :) $
     case err of
-      TypeError _ _ cl  -> [ errorString $ clValue cl ]
-      Exception r s     -> [ prettyShow r, show s ]
-      IOException _ r e -> [ prettyShow r, showIOException e ]
-      PatternErr{}      -> [ "PatternErr" ]
-
-errorString :: TypeError -> String
-errorString = \case
-  AmbiguousModule{}                        -> "AmbiguousModule"
-  AmbiguousName{}                          -> "AmbiguousName"
-  AmbiguousField{}                         -> "AmbiguousField"
-  AmbiguousParseForApplication{}           -> "AmbiguousParseForApplication"
-  AmbiguousParseForLHS{}                   -> "AmbiguousParseForLHS"
-  AmbiguousProjection{}                    -> "AmbiguousProjection"
-  AmbiguousOverloadedProjection{}          -> "AmbiguousOverloadedProjection"
-  AmbiguousConstructor{}                   -> "AmbiguousConstructor"
---  AmbiguousParseForPatternSynonym{}        -> "AmbiguousParseForPatternSynonym"
-  AmbiguousTopLevelModuleName {}           -> "AmbiguousTopLevelModuleName"
-  AsPatternInPatternSynonym{}              -> "AsPatternInPatternSynonym"
-  DotPatternInPatternSynonym{}             -> "DotPatternInPatternSynonym"
-  BadArgumentsToPatternSynonym{}           -> "BadArgumentsToPatternSynonym"
-  TooFewArgumentsToPatternSynonym{}        -> "TooFewArgumentsToPatternSynonym"
-  CannotResolveAmbiguousPatternSynonym{}   -> "CannotResolveAmbiguousPatternSynonym"
-  PatternSynonymArgumentShadowsConstructorOrPatternSynonym{} -> "PatternSynonymArgumentShadowsConstructorOrPatternSynonym"
-  UnboundVariablesInPatternSynonym{}       -> "UnboundVariablesInPatternSynonym"
-  BuiltinInParameterisedModule{}           -> "BuiltinInParameterisedModule"
-  BuiltinMustBeConstructor{}               -> "BuiltinMustBeConstructor"
-  ClashingDefinition{}                     -> "ClashingDefinition"
-  ClashingImport{}                         -> "ClashingImport"
-  ClashingModule{}                         -> "ClashingModule"
-  ClashingModuleImport{}                   -> "ClashingModuleImport"
-  CompilationError{}                       -> "CompilationError"
-  ConstructorPatternInWrongDatatype{}      -> "ConstructorPatternInWrongDatatype"
-  CyclicModuleDependency{}                 -> "CyclicModuleDependency"
-  CantResolveOverloadedConstructorsTargetingSameDatatype{} -> "CantResolveOverloadedConstructorsTargetingSameDatatype"
-  DefinitionInDifferentModule{}            -> "DefinitionInDifferentModule"
-  ConstructorDoesNotTargetGivenType{}      -> "ConstructorDoesNotTargetGivenType"
-  DuplicateBuiltinBinding{}                -> "DuplicateBuiltinBinding"
-  DuplicateConstructors{}                  -> "DuplicateConstructors"
-  DuplicateFields{}                        -> "DuplicateFields"
-  DuplicateImports{}                       -> "DuplicateImports"
-  DuplicateOverlapPragma{}                 -> "DuplicateOverlapPragma"
-  FieldOutsideRecord                       -> "FieldOutsideRecord"
-  FileNotFound{}                           -> "FileNotFound"
-  GenericError{}                           -> "GenericError"
-  GenericDocError{}                        -> "GenericDocError"
-  InstanceNoCandidate{}                    -> "InstanceNoCandidate"
-  IllformedProjectionPatternAbstract{}     -> "IllformedProjectionPatternAbstract"
-  IllformedProjectionPatternConcrete{}     -> "IllformedProjectionPatternConcrete"
-  CannotEliminateWithPattern{}             -> "CannotEliminateWithPattern"
-  CannotEliminateWithProjection{}          -> "CannotEliminateWithProjection"
-  IllegalDeclarationInDataDefinition{}     -> "IllegalDeclarationInDataDefinition"
-  IllegalLetInTelescope{}                  -> "IllegalLetInTelescope"
-  IllegalPatternInTelescope{}              -> "IllegalPatternInTelescope"
--- UNUSED:  IncompletePatternMatching{}              -> "IncompletePatternMatching"
-  InternalError{}                          -> "InternalError"
-  InvalidPattern{}                         -> "InvalidPattern"
-  InvalidFileName{}                        -> "InvalidFileName"
-  LibraryError{}                           -> "LibraryError"
-  LiteralTooBig{}                          -> "LiteralTooBig"
-  LocalVsImportedModuleClash{}             -> "LocalVsImportedModuleClash"
-  MetaCannotDependOn{}                     -> "MetaCannotDependOn"
-  MetaOccursInItself{}                     -> "MetaOccursInItself"
-  MetaIrrelevantSolution{}                 -> "MetaIrrelevantSolution"
-  MetaErasedSolution{}                     -> "MetaErasedSolution"
-  ModuleArityMismatch{}                    -> "ModuleArityMismatch"
-  ModuleDefinedInOtherFile {}              -> "ModuleDefinedInOtherFile"
-  ModuleNameUnexpected{}                   -> "ModuleNameUnexpected"
-  ModuleNameDoesntMatchFileName {}         -> "ModuleNameDoesntMatchFileName"
-  NeedOptionAllowExec{}                    -> "NeedOptionAllowExec"
-  NeedOptionCopatterns{}                   -> "NeedOptionCopatterns"
-  NeedOptionCubical{}                      -> "NeedOptionCubical"
-  NeedOptionPatternMatching{}              -> "NeedOptionPatternMatching"
-  NeedOptionProp{}                         -> "NeedOptionProp"
-  NeedOptionRewriting{}                    -> "NeedOptionRewriting"
-  NeedOptionSizedTypes{}                   -> "NeedOptionSizedTypes"
-  NeedOptionTwoLevel{}                     -> "NeedOptionTwoLevel"
-  NeedOptionUniversePolymorphism{}         -> "NeedOptionUniversePolymorphism"
-  NegativeLiteralInPattern{}               -> "NegativeLiteralInPattern"
-  NoKnownRecordWithSuchFields{}            -> "NoKnownRecordWithSuchFields"
-  GeneralizeNotSupportedHere{}             -> "GeneralizeNotSupportedHere"
-  GeneralizeCyclicDependency{}             -> "GeneralizeCyclicDependency"
-  GeneralizedVarInLetOpenedModule{}        -> "GeneralizedVarInLetOpenedModule"
-  MultipleFixityDecls{}                    -> "MultipleFixityDecls"
-  MultiplePolarityPragmas{}                -> "MultiplePolarityPragmas"
-  NoBindingForBuiltin{}                    -> "NoBindingForBuiltin"
-  NoBindingForPrimitive{}                  -> "NoBindingForPrimitive"
-  NoParseForApplication{}                  -> "NoParseForApplication"
-  NoParseForLHS{}                          -> "NoParseForLHS"
---  NoParseForPatternSynonym{}               -> "NoParseForPatternSynonym"
-  AbsentRHSRequiresAbsurdPattern{}         -> "AbsentRHSRequiresAbsurdPattern"
-  NoSuchBuiltinName{}                      -> "NoSuchBuiltinName"
-  NoSuchModule{}                           -> "NoSuchModule"
-  DuplicatePrimitiveBinding{}              -> "DuplicatePrimitiveBinding"
-  NoSuchPrimitiveFunction{}                -> "NoSuchPrimitiveFunction"
-  WrongArgInfoForPrimitive{}               -> "WrongArgInfoForPrimitive"
-  NotAModuleExpr{}                         -> "NotAModuleExpr"
-  InvalidType{}                            -> "InvalidType"
-  InvalidTypeSort{}                        -> "InvalidTypeSort"
-  CannotSolveSizeConstraints{}             -> "CannotSolveSizeConstraints"
-  ContradictorySizeConstraint{}            -> "ContradictorySizeConstraint"
-  EmptyTypeOfSizes{}                       -> "EmptyTypeOfSizes"
-  FunctionTypeInSizeUniv{}                 -> "FunctionTypeInSizeUniv"
-  NotAValidLetBinding{}                    -> "NotAValidLetBinding"
-  NotValidBeforeField{}                    -> "NotValidBeforeField"
-  NotAnExpression{}                        -> "NotAnExpression"
-  NotImplemented{}                         -> "NotImplemented"
-  NotSupported{}                           -> "NotSupported"
-  AbstractConstructorNotInScope{}          -> "AbstractConstructorNotInScope"
-  NotInScope{}                             -> "NotInScope"
-  NotLeqSort{}                             -> "NotLeqSort"
-  NothingAppliedToHiddenArg{}              -> "NothingAppliedToHiddenArg"
-  NothingAppliedToInstanceArg{}            -> "NothingAppliedToInstanceArg"
-  OverlappingProjects {}                   -> "OverlappingProjects"
-  OperatorInformation {}                   -> "OperatorInformation"
-  RepeatedVariablesInPattern{}             -> "RepeatedVariablesInPattern"
-  ShadowedModule{}                         -> "ShadowedModule"
-  ShouldBeASort{}                          -> "ShouldBeASort"
-  ShouldBeAppliedToTheDatatypeParameters{} -> "ShouldBeAppliedToTheDatatypeParameters"
-  ShouldBeEmpty{}                          -> "ShouldBeEmpty"
-  ShouldBePi{}                             -> "ShouldBePi"
-  ShouldBePath{}                           -> "ShouldBePath"
-  ShouldBeRecordType{}                     -> "ShouldBeRecordType"
-  ShouldBeRecordPattern{}                  -> "ShouldBeRecordPattern"
-  ShouldEndInApplicationOfTheDatatype{}    -> "ShouldEndInApplicationOfTheDatatype"
-  SplitError{}                             -> "SplitError"
-  ImpossibleConstructor{}                  -> "ImpossibleConstructor"
-  TooManyFields{}                          -> "TooManyFields"
-  TooManyPolarities{}                      -> "TooManyPolarities"
-  RecursiveRecordNeedsInductivity{}        -> "RecursiveRecordNeedsInductivity"
-  SplitOnCoinductive{}                     -> "SplitOnCoinductive"
-  SplitOnIrrelevant{}                      -> "SplitOnIrrelevant"
-  SplitOnUnusableCohesion{}                -> "SplitOnUnusableCohesion"
-  -- UNUSED: -- SplitOnErased{}                          -> "SplitOnErased"
-  SplitOnNonVariable{}                     -> "SplitOnNonVariable"
-  SplitOnNonEtaRecord{}                    -> "SplitOnNonEtaRecord"
-  SplitOnAbstract{}                        -> "SplitOnAbstract"
-  SplitOnUnchecked{}                       -> "SplitOnUnchecked"
-  SplitOnPartial{}                         -> "SplitOnPartial"
-  SplitInProp{}                            -> "SplitInProp"
-  DefinitionIsIrrelevant{}                 -> "DefinitionIsIrrelevant"
-  DefinitionIsErased{}                     -> "DefinitionIsErased"
-  ProjectionIsIrrelevant{}                 -> "ProjectionIsIrrelevant"
-  VariableIsIrrelevant{}                   -> "VariableIsIrrelevant"
-  VariableIsErased{}                       -> "VariableIsErased"
-  VariableIsOfUnusableCohesion{}           -> "VariableIsOfUnusableCohesion"
-  UnequalRelevance{}                       -> "UnequalRelevance"
-  UnequalQuantity{}                        -> "UnequalQuantity"
-  UnequalCohesion{}                        -> "UnequalCohesion"
-  UnequalFiniteness{}                      -> "UnequalFiniteness"
-  UnequalHiding{}                          -> "UnequalHiding"
-  UnequalLevel{}                           -> "UnequalLevel"
-  UnequalSorts{}                           -> "UnequalSorts"
-  UnequalTerms{}                           -> "UnequalTerms"
-  WithOnFreeVariable{}                     -> "WithOnFreeVariable"
-  UnexpectedWithPatterns{}                 -> "UnexpectedWithPatterns"
-  UninstantiatedDotPattern{}               -> "UninstantiatedDotPattern"
-  ForcedConstructorNotInstantiated{}       -> "ForcedConstructorNotInstantiated"
-  SolvedButOpenHoles{}                     -> "SolvedButOpenHoles"
-  IllegalInstanceVariableInPatternSynonym _ -> "IllegalInstanceVariableInPatternSynonym"
-  UnusedVariableInPatternSynonym _         -> "UnusedVariableInPatternSynonym"
-  UnquoteFailed{}                          -> "UnquoteFailed"
-  DeBruijnIndexOutOfScope{}                -> "DeBruijnIndexOutOfScope"
-  TooFewPatternsInWithClause{}             -> "TooFewPatternsInWithClause"
-  TooManyPatternsInWithClause{}            -> "TooManyPatternsInWithClause"
-  WithClausePatternMismatch{}              -> "WithClausePatternMismatch"
-  WrongHidingInApplication{}               -> "WrongHidingInApplication"
-  WrongHidingInLHS{}                       -> "WrongHidingInLHS"
-  WrongHidingInLambda{}                    -> "WrongHidingInLambda"
-  WrongHidingInProjection{}                -> "WrongHidingInProjection"
-  IllegalHidingInPostfixProjection{}       -> "IllegalHidingInPostfixProjection"
-  WrongAnnotationInLambda{}                -> "WrongAnnotationInLambda"
-  WrongIrrelevanceInLambda{}               -> "WrongIrrelevanceInLambda"
-  WrongQuantityInLambda{}                  -> "WrongQuantityInLambda"
-  WrongCohesionInLambda{}                  -> "WrongCohesionInLambda"
-  WrongNamedArgument{}                     -> "WrongNamedArgument"
-  WrongNumberOfConstructorArguments{}      -> "WrongNumberOfConstructorArguments"
-  QuantityMismatch{}                       -> "QuantityMismatch"
-  HidingMismatch{}                         -> "HidingMismatch"
-  RelevanceMismatch{}                      -> "RelevanceMismatch"
-  NonFatalErrors{}                         -> "NonFatalErrors"
-  InstanceSearchDepthExhausted{}           -> "InstanceSearchDepthExhausted"
-  TriedToCopyConstrainedPrim{}             -> "TriedToCopyConstrainedPrim"
-  SortOfSplitVarError{}                    -> "SortOfSplitVarError"
-  ReferencesFutureVariables{}              -> "ReferencesFutureVariables"
-  DoesNotMentionTicks{}                    -> "DoesNotMentionTicks"
-  MismatchedProjectionsError{}             -> "MismatchedProjectionsError"
-  AttributeKindNotEnabled{}                -> "AttributeKindNotEnabled"
-  InvalidProjectionParameter{}             -> "InvalidProjectionParameter"
-  TacticAttributeNotAllowed{}              -> "TacticAttributeNotAllowed"
-  CannotRewriteByNonEquation{}             -> "CannotRewriteByNonEquation"
-  MacroResultTypeMismatch{}                -> "MacroResultTypeMismatch"
-  NamedWhereModuleInRefinedContext{}       -> "NamedWhereModuleInRefinedContext"
-  CannotGenerateHCompClause{}              -> "CannotGenerateHCompClause"
-  CannotGenerateTransportClause{}          -> "CannotGenerateTransportClause"
-  CubicalPrimitiveNotFullyApplied{}        -> "CubicalPrimitiveNotFullyApplied"
-  ExpectedIntervalLiteral{}                -> "ExpectedIntervalLiteral"
-  PatternInPathLambda{}                    -> "PatternInPathLambda"
-  PatternInSystem{}                        -> "PatternInSystem"
-  IllTypedPatternAfterWithAbstraction{}    -> "IllTypedPatternAfterWithAbstraction"
-  ComatchingDisabledForRecord{}            -> "ComatchingDisabledForRecord"
-  IncorrectTypeForRewriteRelation{}        -> "IncorrectTypeForRewriteRelation"
-  UnexpectedParameter{}                    -> "UnexpectedParameter"
-  NoParameterOfName{}                      -> "NoParameterOfName"
-  UnexpectedModalityAnnotationInParameter{} -> "UnexpectedModalityAnnotationInParameter"
-  SortDoesNotAdmitDataDefinitions{}        -> "SortDoesNotAdmitDataDefinitions"
-  SortCannotDependOnItsIndex{}             -> "SortCannotDependOnItsIndex"
-  ExpectedBindingForParameter{}            -> "ExpectedBindingForParameter"
-  UnexpectedTypeSignatureForParameter{}    -> "UnexpectedTypeSignatureForParameter"
-  UnusableAtModality{}                     -> "UnusableAtModality"
-  CubicalCompilationNotSupported{}         -> "CubicalCompilationNotSupported"
-  -- Error groups
-  CustomBackendError{}                     -> "CustomBackendError"
-  GHCBackendError err                      -> "GHCBackend." ++ ghcBackendErrorString err
-  InteractionError err                     -> "Interaction." ++ interactionErrorString err
-  NicifierError err                        -> "Syntax." ++ declarationExceptionString err
-  OptionError{}                            -> "OptionError"
-
-ghcBackendErrorString :: GHCBackendError -> String
-ghcBackendErrorString = \case
-  ConstructorCountMismatch{}               -> "ConstructorCountMismatch"
-  NotAHaskellType{}                        -> "NotAHaskellType"
-  WrongTypeOfMain{}                        -> "WrongTypeOfMain"
-
-interactionErrorString :: InteractionError -> String
-interactionErrorString = \case
-  CaseSplitError{}                         -> "CaseSplitError"
-  CannotRefine{}                           -> "CannotRefine"
-  ExpectedIdentifier{}                     -> "ExpectedIdentifier"
-  ExpectedApplication{}                    -> "ExpectedApplication"
-  NoActionForInteractionPoint{}            -> "NoActionForInteractionPoint"
-  NoSuchInteractionPoint{}                 -> "NoSuchInteractionPoint"
-  UnexpectedWhere{}                        -> "UnexpectedWhere"
+      TypeError _ _ cl     -> [ typeErrorString $ clValue cl ]
+      ParserError e        -> [ "ParserError" ]
+      GenericException msg -> [ msg ]
+      IOException _ r e    -> [ prettyShow r, showIOException e ]
+      PatternErr{}         -> [ "PatternErr" ]
 
 instance PrettyTCM TCErr where
   prettyTCM err = case err of
@@ -376,12 +153,13 @@ instance PrettyTCM TCErr where
         [ hsep
           [ if null r then empty else prettyTCM r <> ":"
           , "error:"
-          , brackets (text $ errorString $ clValue e)
+          , brackets (text $ typeErrorString $ clValue e)
           ]
         , prettyTCM e
         , prettyTCM (envCall $ clEnv e)
         ]
-    Exception r s     -> sayWhere r $ return s
+    ParserError err   -> pretty err
+    GenericException msg -> fwords msg
     IOException _ r e -> sayWhere r $ fwords $ showIOException e
     PatternErr{}      -> sayWhere err $ panic "uncaught pattern violation"
 
@@ -431,6 +209,8 @@ instance PrettyTCM TypeError where
 
     OptionError s -> fwords s
 
+    SyntaxError s -> fwords $ "Syntax error: "  ++ s
+
     NoKnownRecordWithSuchFields fields -> fsep $
       case fields of
         []  -> pwords "There are no records in scope"
@@ -440,10 +220,6 @@ instance PrettyTCM TypeError where
     ShouldEndInApplicationOfTheDatatype t -> fsep $
       pwords "The target of a constructor must be the datatype applied to its parameters,"
       ++ [prettyTCM t] ++ pwords "isn't"
-
-    ShouldBeAppliedToTheDatatypeParameters s t -> fsep $
-      pwords "The target of the constructor should be" ++ [prettyTCM s] ++
-      pwords "instead of" ++ [prettyTCM t]
 
     ShouldBeRecordType t -> fsep $
       pwords "Expected non-abstract record type, found " ++ [prettyTCM t]
@@ -496,9 +272,6 @@ instance PrettyTCM TypeError where
     QuantityMismatch q q' -> fwords $
       "Expected " ++ verbalize (Indefinite q') ++ " argument, but found " ++
       verbalize (Indefinite q) ++ " argument"
-
-    UninstantiatedDotPattern e -> fsep $
-      pwords "Failed to infer the value of dotted pattern"
 
     ForcedConstructorNotInstantiated p -> fsep $
       pwords "Failed to infer that constructor pattern "
@@ -640,7 +413,6 @@ instance PrettyTCM TypeError where
       prettyTCM t : pwords "should be a Path or PathP type, but it isn't"
 
     InvalidTypeSort s -> fsep $ prettyTCM s : pwords "is not a valid sort"
-    InvalidType v -> fsep $ prettyTCM v : pwords "is not a valid type"
 
     CannotSolveSizeConstraints ccs reason -> do
       -- Print the HypSizeConstraints (snd)
@@ -727,6 +499,14 @@ instance PrettyTCM TypeError where
 
     VariableIsOfUnusableCohesion x c -> fsep
       ["Variable", prettyTCM (nameConcrete x), "is declared", text (show c), "so it cannot be used here"]
+
+    InvalidModalTelescopeUse t used avail def -> fsep
+      [ "Telescope variable" <+> prettyTCM t
+      , "is indirectly being used in the" <+> text (verbalize (getModality used)) <+> "modality"
+      , "but only available in the" <+> text (verbalize (getModality avail)) <+> "modality"
+      , "when inserting into the telescope of definition"
+      , pretty (defName def) <+> ":" <+> prettyTCM (defType def)
+      ]
 
     UnequalTerms cmp s t a -> case (s,t) of
       (Sort s1      , Sort s2      )
@@ -905,9 +685,10 @@ instance PrettyTCM TypeError where
 
     LibraryError err -> return $ formatLibErrors err
 
-    LocalVsImportedModuleClash m -> fsep $
-      pwords "The module" ++ [prettyTCM m] ++
-      pwords "can refer to either a local module or an imported module"
+    LibTooFarDown m lib -> vcat
+      [ text "A .agda-lib file for" <+> pretty m
+      , text "must not be located in the directory" <+> text (takeDirectory (lib ^. libFile))
+      ]
 
     SolvedButOpenHoles -> fsep $
       pwords "Module cannot be imported since it has open interaction points" ++
@@ -1016,6 +797,12 @@ instance PrettyTCM TypeError where
       , prettyTCM q
       ] ++ pwords "is abstract, thus, not in scope here"
 
+    NotAllowedInDotPatterns what -> fsep $ verb what ++ pwords "are not allowed in dot patterns"
+      where
+      verb = \case
+        LetExpressions -> pwords "Let expressions"
+        PatternLambdas -> pwords "Pattern lambdas"
+
     NotInScope xs ->
       -- using the warning version to avoid code duplication
       prettyWarning (NotInScopeW xs)
@@ -1062,20 +849,9 @@ instance PrettyTCM TypeError where
       pwords "The modules" ++ [prettyTCM m1, "and", prettyTCM m2]
       ++ pwords "clash."
 
-    ClashingImport x y -> fsep $
-      pwords "Import clash between" ++ [pretty x, "and", prettyTCM y]
-
-    ClashingModuleImport x y -> fsep $
-      pwords "Module import clash between" ++ [pretty x, "and", prettyTCM y]
-
     DuplicateImports m xs -> fsep $
       pwords "Ambiguous imports from module" ++ [pretty m] ++ pwords "for" ++
       punctuate comma (map pretty xs)
-
-    NotAModuleExpr e -> fsep $
-      pwords "The right-hand side of a module definition must have the form 'M e1 .. en'" ++
-      pwords "where M is a module name. The expression"
-      ++ [pretty e, "doesn't."]
 
     DefinitionInDifferentModule _x -> fsep $
       pwords "Definition in different module than its type signature"
@@ -1092,8 +868,10 @@ instance PrettyTCM TypeError where
     NotAnExpression e -> fsep $
       pretty e : pwords "is not a valid expression."
 
-    NotAValidLetBinding nd -> fwords $
-      "Not a valid let-declaration"
+    NotAValidLetBinding Nothing -> fwords $ "Not a valid let binding"
+    NotAValidLetBinding (Just err) -> fwords $ verbalizeNotAValidLetBinding err
+
+    NotAValidLetExpression err -> fwords $ verbalizeNotAValidLetExpression err
 
     NotValidBeforeField nd -> fwords $
       "This declaration is illegal in a record before the last field"
@@ -1369,29 +1147,7 @@ instance PrettyTCM TypeError where
             vcat [ prettyTCM term <?> text "was ruled out because"
                  , prettyTCM err ]
 
-    UnquoteFailed e -> case e of
-      BadVisibility msg arg -> fsep $
-        pwords $ "Unable to unquote the argument. It should be `" ++ msg ++ "'."
-
-      ConInsteadOfDef x def con -> fsep $
-        pwords ("Use " ++ con ++ " instead of " ++ def ++ " for constructor") ++
-        [prettyTCM x]
-
-      DefInsteadOfCon x def con -> fsep $
-        pwords ("Use " ++ def ++ " instead of " ++ con ++ " for non-constructor")
-        ++ [prettyTCM x]
-
-      NonCanonical kind t ->
-        fwords ("Cannot unquote non-canonical " ++ kind)
-        $$ nest 2 (prettyTCM t)
-
-      BlockedOnMeta _ m -> fsep $
-        pwords $ "Unquote failed because of unsolved meta variables."
-
-      PatLamWithoutClauses _ -> fsep $
-        pwords "Cannot unquote pattern lambda without clauses. Use a single `absurd-clause` for absurd lambdas."
-
-      UnquotePanic err -> __IMPOSSIBLE__
+    UnquoteFailed e -> prettyTCM e
 
     DeBruijnIndexOutOfScope i EmptyTel [] -> fsep $
         pwords $ "de Bruijn index " ++ show i ++ " is not in scope in the empty context"
@@ -1810,6 +1566,34 @@ instance PrettyTCM InteractionError where
 
     UnexpectedWhere -> fwords "`where' clauses are not supported in holes"
 
+instance PrettyTCM UnquoteError where
+  prettyTCM = \case
+
+    BadVisibility msg arg -> fsep $
+      pwords $ "Unable to unquote the argument. It should be `" ++ msg ++ "'."
+
+    CannotDeclareHiddenFunction f -> fsep $
+      pwords "Cannot declare hidden function" ++ [ prettyTCM f ]
+
+    ConInsteadOfDef x def con -> fsep $
+      pwords ("Use " ++ con ++ " instead of " ++ def ++ " for constructor") ++
+      [prettyTCM x]
+
+    DefInsteadOfCon x def con -> fsep $
+      pwords ("Use " ++ def ++ " instead of " ++ con ++ " for non-constructor")
+      ++ [prettyTCM x]
+
+    NonCanonical kind t ->
+      fwords ("Cannot unquote non-canonical " ++ kind)
+      $$ nest 2 (prettyTCM t)
+
+    BlockedOnMeta _ m -> fsep $
+      pwords $ "Unquote failed because of unsolved meta variables."
+
+    PatLamWithoutClauses _ -> fsep $
+      pwords "Cannot unquote pattern lambda without clauses. Use a single `absurd-clause` for absurd lambdas."
+
+    UnquotePanic err -> __IMPOSSIBLE__
 
 notCmp :: MonadPretty m => Comparison -> m Doc
 notCmp cmp = "!" <> prettyTCM cmp
@@ -2079,9 +1863,9 @@ instance Verbalize Hiding where
 instance Verbalize Relevance where
   verbalize r =
     case r of
-      Relevant   -> "relevant"
-      Irrelevant -> "irrelevant"
-      NonStrict  -> "shape-irrelevant"
+      Relevant        {} -> "relevant"
+      Irrelevant      {} -> "irrelevant"
+      ShapeIrrelevant {} -> "shape-irrelevant"
 
 instance Verbalize Quantity where
   verbalize = \case

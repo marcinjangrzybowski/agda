@@ -151,9 +151,9 @@ isType_ e = traceCall (IsType_ e) $ do
         Just (USmall, u) <- isNameOfUniv x -> do
       univChecks u
       unlessM hasUniversePolymorphism $ typeError NeedOptionUniversePolymorphism
-      -- allow NonStrict variables when checking level
-      --   Set : (NonStrict) Level -> Set\omega
-      applyRelevanceToContext NonStrict $
+      -- allow ShapeIrrelevant variables when checking level
+      --   Set : (ShapeIrrelevant) Level -> Set\omega
+      applyRelevanceToContext shapeIrrelevant $
         sort . Univ u <$> checkLevel arg
 
     -- Issue #707: Check an existing interaction point
@@ -361,7 +361,7 @@ checkTypedBindings lamOrPi (A.TBind r tac xps e) ret = do
         -- modify the new context entries
         modEnv LamNotPi = workOnTypes
         modEnv _        = id
-        modMod PiNotLam xp = applyWhen xp $ mapRelevance irrToNonStrict
+        modMod PiNotLam xp = applyWhen xp $ mapRelevance irrelevantToShapeIrrelevant
         modMod _        _  = id
 
 checkTypedBindings lamOrPi (A.TLet _ lbs) ret = do
@@ -1151,7 +1151,7 @@ checkExpr' cmp e t =
 
     irrelevantIfProp <- runBlocked (isPropM t) >>= \case
       Right True  -> do
-        let mod = unitModality { modRelevance = Irrelevant }
+        let mod = unitModality { modRelevance = irrelevant }
         return $ fmap dontCare . applyModalityToContext mod
       _ -> return id
 
@@ -1216,10 +1216,13 @@ checkExpr' cmp e t =
 
         A.RecUpdate ei recexpr fs -> checkRecordUpdate cmp ei recexpr fs e t
 
-        A.DontCare e -> -- resurrect vars
-          ifM ((Irrelevant ==) <$> viewTC eRelevance)
-            (dontCare <$> do applyRelevanceToContext Irrelevant $ checkExpr' cmp e t)
-            (internalError "DontCare may only appear in irrelevant contexts")
+        A.DontCare e -> do
+          rel <- viewTC eRelevance
+          if isIrrelevant rel then dontCare <$> do
+            -- resurrect variables
+            applyRelevanceToContext rel $ checkExpr' cmp e t
+          else
+            internalError "DontCare may only appear in irrelevant contexts"
 
         A.Dot{} -> genericError "Invalid dotted expression"
 

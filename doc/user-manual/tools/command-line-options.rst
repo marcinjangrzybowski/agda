@@ -750,7 +750,7 @@ Pattern matching and equality
      definitional equalities unless marked ``CATCHALL`` (see
      :ref:`case-trees`).
 
-     Default since 2.7.0: ``--exact-split``.
+     Default: ``--no-exact-split``.
 
 .. option:: --hidden-argument-puns, --no-hidden-argument-puns
 
@@ -1346,6 +1346,10 @@ The list containing any warning ``NAME`` can be produced by ``agda --help=warnin
 
      Face constraint patterns that are given as named arguments.
 
+.. option:: FixingRelevance
+
+     Invalid relevance annotations, automatically corrected.
+
 .. option:: FixityInRenamingModule
 
      Fixity annotations in ``renaming`` directives for a ``module``.
@@ -1388,10 +1392,6 @@ The list containing any warning ``NAME`` can be produced by ``agda --help=warnin
 .. option:: InvalidCharacterLiteral
 
      Illegal character literals such as surrogate code points.
-
-.. option:: InvalidConstructor
-
-     ``constructor`` blocks that contain declarations other type signatures for constructors.
 
 .. option:: InvalidConstructorBlock
 
@@ -1448,6 +1448,10 @@ The list containing any warning ``NAME`` can be produced by ``agda --help=warnin
 
      Declarations that should not be inside ``opaque`` blocks.
 
+.. option:: NotARewriteRule
+
+     ``REWRITE`` pragmas referring to identifiers that are neither definitions nor constructors.
+
 .. option:: NotInScope
 
      Out of scope names.
@@ -1492,6 +1496,30 @@ The list containing any warning ``NAME`` can be produced by ``agda --help=warnin
 
      :ref:`COMPILE<foreign-function-interface>` pragma for GHC backend targeting ``MAYBE``.
 
+.. option:: PragmaCompileUnparsable
+
+     Unparsable :ref:`COMPILE<foreign-function-interface>` GHC pragmas.
+
+.. option:: PragmaCompileWrong
+
+     Ill-formed :ref:`COMPILE<foreign-function-interface>` GHC pragmas.
+
+.. option:: PragmaCompileWrongName
+
+     :ref:`COMPILE<foreign-function-interface>` pragmas referring to identifiers that are neither definitions nor constructors.
+
+.. option:: PragmaExpectsDefinedSymbol
+
+     Pragmas referring to identifiers that are not defined symbols.
+
+.. option:: PragmaExpectsUnambiguousConstructorOrFunction
+
+     Pragmas referring to identifiers that are not unambiguous constructors or functions.
+
+.. option:: PragmaExpectsUnambiguousProjectionOrFunction
+
+     Pragmas referring to identifiers that are not unambiguous projections or functions.
+
 .. option:: PragmaNoTerminationCheck
 
      :ref:`NO_TERMINATION_CHECK<terminating-pragma>` pragmas; such are deprecated.
@@ -1515,10 +1543,6 @@ The list containing any warning ``NAME`` can be produced by ``agda --help=warnin
 .. option:: RewriteLHSReduces
 
      Rewrite rule LHS is not in weak-head normal form.
-
-.. option:: RewriteHeadSymbolIsProjection
-
-     Rewrite rule head symbol is a record projection.
 
 .. option:: RewriteHeadSymbolIsProjectionLikeFunction
 
@@ -1571,6 +1595,10 @@ The list containing any warning ``NAME`` can be produced by ``agda --help=warnin
 .. option:: TooManyFields
 
      Record expression with invalid field names.
+
+.. option:: UnfoldingWrongName
+
+     Names in an ``unfolding`` clause that are not unambiguous definitions.
 
 .. option:: UnfoldTransparentName
 

@@ -431,10 +431,15 @@ warningHighlighting' b w = case tcWarning w of
   CantGeneralizeOverSorts{}  -> mempty
   UnsolvedInteractionMetas{} -> mempty
   InteractionMetaBoundaries{} -> mempty
-  OldBuiltin{}               -> mempty
+  OldBuiltin{}                -> deadcodeHighlighting w
   BuiltinDeclaresIdentifier{} -> mempty
   EmptyRewritePragma{}       -> deadcodeHighlighting w
   EmptyWhere{}               -> deadcodeHighlighting w
+  -- TODO: linearity
+  -- FixingQuantity _ q _       -> if null r then cosmeticHighlighting w else deadcodeHighlighting r
+  --   where r = getRange q
+  FixingRelevance _ q _      -> if null r then cosmeticProblemHighlighting w else deadcodeHighlighting r
+    where r = getRange q
   IllformedAsClause{}        -> deadcodeHighlighting w
   UselessPragma r _          -> deadcodeHighlighting r
   UselessPublic{}            -> deadcodeHighlighting w
@@ -473,10 +478,20 @@ warningHighlighting' b w = case tcWarning w of
   RewriteMaybeNonConfluent{} -> confluenceErrorHighlighting w
   RewriteAmbiguousRules{}    -> confluenceErrorHighlighting w
   RewriteMissingRule{}       -> confluenceErrorHighlighting w
-  IllegalRewriteRule{}       -> deadcodeHighlighting w
+  IllegalRewriteRule x _     -> deadcodeHighlighting x
+  NotARewriteRule x _        -> deadcodeHighlighting x
   PragmaCompileErased{}      -> deadcodeHighlighting w
   PragmaCompileList{}        -> deadcodeHighlighting w
   PragmaCompileMaybe{}       -> deadcodeHighlighting w
+  PragmaCompileWrong{}       -> deadcodeHighlighting w
+  PragmaCompileWrongName{}   -> deadcodeHighlighting w
+  PragmaCompileUnparsable{}  -> deadcodeHighlighting w
+  PragmaExpectsDefinedSymbol{}
+                             -> deadcodeHighlighting w
+  PragmaExpectsUnambiguousConstructorOrFunction{}
+                             -> deadcodeHighlighting w
+  PragmaExpectsUnambiguousProjectionOrFunction{}
+                             -> deadcodeHighlighting w
   NoMain{}                   -> mempty
   NotInScopeW{}              -> deadcodeHighlighting w
   UnsupportedIndexedMatch{}  -> mempty
@@ -494,6 +509,7 @@ warningHighlighting' b w = case tcWarning w of
   MissingTypeSignatureForOpaque{} -> errorWarningHighlighting w
   NotAffectedByOpaque{}           -> deadcodeHighlighting w
   UselessOpaque{}                 -> deadcodeHighlighting w
+  UnfoldingWrongName x            -> deadcodeHighlighting x
   UnfoldTransparentName r         -> deadcodeHighlighting r
   FaceConstraintCannotBeHidden{}  -> deadcodeHighlighting w
   FaceConstraintCannotBeNamed{}   -> deadcodeHighlighting w
@@ -523,11 +539,11 @@ warningHighlighting' b w = case tcWarning w of
     UselessInstance{}                -> deadcodeHighlighting w
     UselessMacro{}                   -> deadcodeHighlighting w
     UselessPrivate{}                 -> deadcodeHighlighting w
+    InvalidCatchallPragma{}          -> deadcodeHighlighting w
     InvalidNoPositivityCheckPragma{} -> deadcodeHighlighting w
     InvalidNoUniverseCheckPragma{}   -> deadcodeHighlighting w
     InvalidTerminationCheckPragma{}  -> deadcodeHighlighting w
     InvalidCoverageCheckPragma{}     -> deadcodeHighlighting w
-    InvalidConstructor{}             -> deadcodeHighlighting w
     InvalidConstructorBlock{}        -> deadcodeHighlighting w
     OpenPublicAbstract{}             -> deadcodeHighlighting w
     OpenPublicPrivate{}              -> deadcodeHighlighting w
@@ -545,7 +561,6 @@ warningHighlighting' b w = case tcWarning w of
     MissingDeclarations{}            -> missingDefinitionHighlighting w
     MissingDefinitions{}             -> missingDefinitionHighlighting w
     -- TODO: explore highlighting opportunities here!
-    InvalidCatchallPragma{}           -> mempty
     PolarityPragmasButNotPostulates{} -> mempty
     PragmaNoTerminationCheck{}        -> mempty
     PragmaCompiled{}                  -> errorWarningHighlighting w

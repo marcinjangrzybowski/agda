@@ -185,7 +185,7 @@ rewriteRelationDom rel = do
 --   @rel us : (lhs rhs : A[us/Δ]) → Set i@.
 --   Returns the checked rewrite rule to be added to the signature.
 checkRewriteRule :: QName -> TCM (Maybe RewriteRule)
-checkRewriteRule q = runMaybeT $ do
+checkRewriteRule q = runMaybeT $ setCurrentRange q do
   lift requireOptionRewriting
   rels <- lift getBuiltinRewriteRelations
   reportSDoc "rewriting.relations" 40 $ vcat
@@ -262,7 +262,10 @@ checkRewriteRule q = runMaybeT $ do
           ~(Just ((_ , _ , pars) , t)) <- getFullyAppliedConType c $ unDom b
           pars <- addContext gamma1 $ checkParametersAreGeneral c pars
           return (conName c , hd , t , pars , vs)
-        _ -> illegalRule LHSNotDefinitionOrConstructor
+        _ -> do
+          reportSDoc "rewriting.rule.check" 30 $ hsep
+            [ "LHSNotDefinitionOrConstructor: ", prettyTCM lhs ]
+          illegalRule LHSNotDefinitionOrConstructor
 
       ifNotAlreadyAdded f $ do
 
@@ -272,7 +275,7 @@ checkRewriteRule q = runMaybeT $ do
 
         ps <- fromRightM failureBlocked $ lift $
           catchPatternErr (pure . Left) $
-            Right <$> patternFrom Relevant 0 (t , Def f) es
+            Right <$> patternFrom relevant 0 (t , Def f) es
 
         reportSDoc "rewriting" 30 $
           "Pattern generated from lhs: " <+> prettyTCM (PDef f ps)
@@ -353,8 +356,13 @@ checkRewriteRule q = runMaybeT $ do
       Axiom{}        -> return ()
       def@Function{} -> do
         whenJust (maybeRight (funProjection def)) $ \proj -> case projProper proj of
-          Just{} -> illegalRule $ HeadSymbolIsProjection f
           Nothing -> illegalRule $ HeadSymbolIsProjectionLikeFunction f
+          Just{} -> __IMPOSSIBLE__
+            -- Andreas, 2024-08-20
+            -- A projection ought to be impossible in the head, since they are represented
+            -- in post-fix in the internal syntax.
+            -- Thus, a lone projection @p@ will be @λ x → x .p@
+            -- and an applied projection @p t@ will be @t .p@.
         whenM (isJust . optConfluenceCheck <$> pragmaOptions) $ do
           let simpleClause cl = (patternsToElims (namedClausePats cl) , clauseBody cl)
           cls <- instantiateFull $ map simpleClause $ funClauses def

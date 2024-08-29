@@ -65,15 +65,6 @@ instance PrettyTCM TCWarning where
     reportSLn "warning" 2 $ "Warning raised at " ++ prettyShow loc
     pure $ tcWarningPrintedWarning w
 
-{-# SPECIALIZE prettyWarningName :: WarningName -> TCM Doc #-}
--- | Prefix for a warning text showing name of the warning.
---   E.g. @warning: -W[no]<warning_name>@
-prettyWarningName :: MonadPretty m => WarningName -> m Doc
-prettyWarningName w = hcat
-  [ "warning: -W[no]"
-  , text $ warningName2String w
-  ]
-
 {-# SPECIALIZE prettyWarning :: Warning -> TCM Doc #-}
 prettyWarning :: MonadPretty m => Warning -> m Doc
 prettyWarning = \case
@@ -140,7 +131,18 @@ prettyWarning = \case
       [prettyTCM d] ++ pwords "is not strictly positive, because it occurs"
       ++ [prettyTCM ocs]
 
-    ConstructorDoesNotFitInData c s1 s2 err -> prettyTCM err
+    ConstructorDoesNotFitInData c s1 s2 err -> msg $$
+      case err of
+        TypeError _loc s e -> withTCState (const s) $ enterClosure e \ e ->
+          parens ("Reason:" <+> prettyTCM e)
+        _ ->
+          prettyTCM err
+      where
+        msg = sep
+          [ "Constructor" <+> prettyTCM c
+          , "of sort" <+> prettyTCM s1
+          , ("does not fit into data type of sort" <+> prettyTCM s2) <> "."
+          ]
 
     CoinductiveEtaRecord name -> vcat
       [ fsep $ pwords "Not switching on eta-equality for coinductive records."
@@ -177,6 +179,16 @@ prettyWarning = \case
     EmptyRewritePragma -> fsep . pwords $ "Empty REWRITE pragma"
 
     EmptyWhere         -> fsep . pwords $ "Empty `where' block (ignored)"
+
+    -- TODO: linearity
+    -- FixingQuantity s q q' -> fsep $ concat
+    --   [ pwords "Replacing illegal quantity", [ pretty q ], pwords s, [ "by", pretty q' ] ]
+
+    FixingRelevance s r r' ->  fsep $ concat
+      [ pwords "Replacing illegal relevance", [ p r ]
+      , pwords s, [ "by", p r' ]
+      ]
+      where p r = text $ "`" ++ verbalize r ++ "'"
 
     IllformedAsClause s -> fsep . pwords $
       "`as' must be followed by an identifier" ++ s
@@ -301,6 +313,14 @@ prettyWarning = \case
 
     CoInfectiveImport msg -> return msg
 
+    NotARewriteRule x amb -> hsep $ concat
+        [ [ pretty x ]
+        , pwords "is not a legal rewrite rule, since the left-hand side is"
+        , case amb of
+            YesAmbiguous xs -> [ "ambiguous:", pretty xs ]
+            NotAmbiguous -> pwords "neither a defined symbol nor a constructor"
+        ]
+
     IllegalRewriteRule q reason -> case reason of
       LHSNotDefinitionOrConstructor -> hsep
         [ prettyTCM q , " is not a legal rewrite rule, since the left-hand side is neither a defined symbol nor a constructor" ]
@@ -317,10 +337,6 @@ prettyWarning = \case
       LHSReduces v v' -> fsep
         [ prettyTCM q <+> " is not a legal rewrite rule, since the left-hand side "
         , prettyTCM v <+> " reduces to " <+> prettyTCM v' ]
-      HeadSymbolIsProjection f -> hsep
-        [ prettyTCM q , " is not a legal rewrite rule, since the head symbol"
-        , prettyTCM f , "is a projection"
-        ]
       HeadSymbolIsProjectionLikeFunction f -> hsep
         [ prettyTCM q , " is not a legal rewrite rule, since the head symbol"
         , hd , "is a projection-like function."
@@ -439,6 +455,43 @@ prettyWarning = \case
     PragmaCompileMaybe -> fsep $ pwords
       "Ignoring GHC pragma for builtin MAYBE; it always compiles to Haskell Maybe."
 
+    PragmaCompileUnparsable s -> fwords $ "Ignoring unparsable GHC pragma '" ++ s ++ "'"
+
+    PragmaCompileWrong _x s -> fwords s
+
+    PragmaCompileWrongName x amb -> hsep $ concat
+      [ pwords "Cannot COMPILE"
+      , [ pretty x ]
+      , pwords "since it is"
+      , case amb of
+          YesAmbiguous xs -> [ "ambiguous:", pretty xs ]
+          NotAmbiguous -> pwords "neither a defined symbol nor a constructor"
+      ]
+
+    PragmaExpectsDefinedSymbol pragma _x -> hsep $ concat
+      [ pwords "Target of"
+      , [ text pragma ]
+      , pwords "pragma should be a defined symbol"
+      ]
+
+    PragmaExpectsUnambiguousConstructorOrFunction pragma _x amb -> hsep $ concat
+      [ pwords "Target of"
+      , [ text pragma ]
+      , pwords "pragma should be"
+      , case amb of
+          YesAmbiguous xs -> pwords "unambiguous, but it resolves to:" ++ [ pretty xs ]
+          NotAmbiguous -> pwords "a function, constructor, or projection"
+      ]
+
+    PragmaExpectsUnambiguousProjectionOrFunction pragma _x amb -> hsep $ concat
+      [ pwords "Target of"
+      , [ text pragma ]
+      , pwords "pragma should be"
+      , case amb of
+          YesAmbiguous xs -> pwords "unambiguous, but it resolves to:" ++ [ pretty xs ]
+          NotAmbiguous -> pwords "a function or projection"
+      ]
+
     NoMain topLevelModule -> vcat
       [ fsep $ pwords "No main function defined in" ++ [prettyTCM topLevelModule <> "."]
       , fsep $ pwords "Use option --no-main to suppress this warning."
@@ -492,6 +545,9 @@ prettyWarning = \case
 
 
     NotAffectedByOpaque -> fwords "Only function definitions can be marked opaque. This definition will be treated as transparent."
+
+    UnfoldingWrongName x -> fsep $
+      pwords "Name in unfolding clause should be unambiguous defined name:" ++ [prettyTCM x]
 
     UnfoldTransparentName qn -> fsep $
       pwords "The name" ++ [prettyTCM qn <> ","] ++ pwords "mentioned by an unfolding clause, does not belong to an opaque block. This has no effect."

@@ -153,8 +153,9 @@ blockOnError blocker f
   | otherwise               = f `catchError` \case
     TypeError{}         -> throwError $ PatternErr blocker
     PatternErr blocker' -> throwError $ PatternErr $ unblockOnEither blocker blocker'
-    err@Exception{}     -> throwError err
+    GenericException{}  -> __IMPOSSIBLE__
     err@IOException{}   -> throwError err
+    ParserError{}       -> __IMPOSSIBLE__
 
 -- | Instantiate something.
 --   Results in an open meta variable or a non meta.
@@ -484,9 +485,9 @@ instance Reduce t => Reduce (Maybe t) where
 
 instance Reduce t => Reduce (Arg t) where
     reduce' a = case getRelevance a of
-      Irrelevant -> return a             -- Don't reduce' irr. args!?
-                                         -- Andreas, 2018-03-03, caused #2989.
-      _          -> traverse reduce' a
+      Irrelevant{} -> return a             -- Don't reduce' irr. args!?
+                                           -- Andreas, 2018-03-03, caused #2989.
+      _ -> traverse reduce' a
 
     reduceB' t = traverse id <$> traverse reduceB' t
 

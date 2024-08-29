@@ -231,7 +231,6 @@ data WarningName
   | EmptyWhere_
   | HiddenGeneralize_
   | InvalidCatchallPragma_
-  | InvalidConstructor_
   | InvalidConstructorBlock_
   | InvalidCoverageCheckPragma_
   | InvalidNoPositivityCheckPragma_
@@ -265,6 +264,9 @@ data WarningName
   | InlineNoExactSplit_
   | DeprecationWarning_
   | DuplicateUsing_
+  | FixingRelevance_
+  -- TODO: linearity
+  -- -- | FixingQuantity_
   | FixityInRenamingModule_
   | InvalidCharacterLiteral_
   | UselessPragma_
@@ -287,12 +289,18 @@ data WarningName
   | PragmaCompileErased_
   | PragmaCompileList_
   | PragmaCompileMaybe_
+  | PragmaCompileUnparsable_
+  | PragmaCompileWrong_
+  | PragmaCompileWrongName_
+  | PragmaExpectsDefinedSymbol_
+  | PragmaExpectsUnambiguousConstructorOrFunction_
+  | PragmaExpectsUnambiguousProjectionOrFunction_
   | NoMain_
+  | NotARewriteRule_
   | RewriteLHSNotDefinitionOrConstructor_
   | RewriteVariablesNotBoundByLHS_
   | RewriteVariablesBoundMoreThanOnce_
   | RewriteLHSReduces_
-  | RewriteHeadSymbolIsProjection_
   | RewriteHeadSymbolIsProjectionLikeFunction_
   | RewriteHeadSymbolIsTypeConstructor_
   | RewriteHeadSymbolContainsMetas_
@@ -346,6 +354,7 @@ data WarningName
   -- Opaque/unfolding
   | MissingTypeSignatureForOpaque_
   | NotAffectedByOpaque_
+  | UnfoldingWrongName_
   | UnfoldTransparentName_
   | UselessOpaque_
   -- Cubical
@@ -446,7 +455,6 @@ warningNameDescription = \case
   EmptyWhere_                      -> "Empty `where' blocks."
   HiddenGeneralize_                -> "Hidden identifiers in variable blocks."
   InvalidCatchallPragma_           -> "`CATCHALL' pragmas before a non-function clause."
-  InvalidConstructor_              -> "`constructor' blocks that contain declarations other than type signatures for constructors."
   InvalidConstructorBlock_         -> "`constructor' blocks outside of `interleaved mutual' blocks."
   InvalidCoverageCheckPragma_      -> "Coverage checking pragmas before non-function or `mutual' blocks."
   InvalidNoPositivityCheckPragma_  -> "Positivity checking pragmas before non-`data', `record' or `mutual' blocks."
@@ -483,6 +491,9 @@ warningNameDescription = \case
   CoverageNoExactSplit_            -> "Failed exact split checks."
   InlineNoExactSplit_              -> "Failed exact split checks after inlining record constructors."
   DeprecationWarning_              -> "Deprecated features."
+  -- TODO: linearity
+  -- FixingQuantity_                  -> "Correcting invalid user-written quantity."
+  FixingRelevance_                 -> "Correcting invalid user-written relevance."
   InvalidCharacterLiteral_         -> "Illegal character literals."
   UselessPragma_                   -> "Pragmas that get ignored."
   IllformedAsClause_               -> "Illformed `as'-clauses in `import' statements."
@@ -505,12 +516,18 @@ warningNameDescription = \case
   PragmaCompileErased_             -> "`COMPILE' pragmas targeting an erased symbol."
   PragmaCompileList_               -> "`COMPILE GHC' pragmas for lists."
   PragmaCompileMaybe_              -> "`COMPILE GHC' pragmas for `MAYBE'."
+  PragmaCompileUnparsable_         -> "Unparsable `COMPILE GHC' pragmas."
+  PragmaCompileWrong_              -> "Ill-formed `COMPILE GHC' pragmas."
+  PragmaCompileWrongName_          -> "`COMPILE' pragmas referring to identifiers that are neither definitions nor constructors.'"
+  PragmaExpectsDefinedSymbol_      -> "Pragmas referrings to identifiers that are not defined symbols."
+  PragmaExpectsUnambiguousConstructorOrFunction_    -> "Pragmas referring to identifiers that are not unambiguous constructors or functions.'"
+  PragmaExpectsUnambiguousProjectionOrFunction_     -> "Pragmas referring to identifiers that are not unambiguous projections or functions.'"
   NoMain_                          -> "Compilation of modules that do not define `main'."
+  NotARewriteRule_                 -> "`REWRITE pragmas referring to identifiers that are neither definitions nor constructors.'"
   RewriteLHSNotDefinitionOrConstructor_             -> "Rewrite rule head symbol is not a defined symbol or constructor."
   RewriteVariablesNotBoundByLHS_                    -> "Rewrite rule does not bind all of its variables."
   RewriteVariablesBoundMoreThanOnce_                -> "Constructor-headed rewrite rule has non-linear parameters."
   RewriteLHSReduces_                                -> "Rewrite rule LHS is not in weak-head normal form."
-  RewriteHeadSymbolIsProjection_                    -> "Rewrite rule head symbol is a record projection."
   RewriteHeadSymbolIsProjectionLikeFunction_        -> "Rewrite rule head symbol is a projection-like function."
   RewriteHeadSymbolIsTypeConstructor_               -> "Rewrite rule head symbol is a type constructor."
   RewriteHeadSymbolContainsMetas_                   -> "Definition of rewrite rule head symbol contains unsolved metas."
@@ -561,6 +578,7 @@ warningNameDescription = \case
   -- Opaque/unfolding warnings
   MissingTypeSignatureForOpaque_   -> "Definitions that are `abstract` or `opaque` yet lack type signatures."
   NotAffectedByOpaque_             -> "Declarations unaffected by enclosing `opaque` blocks."
+  UnfoldingWrongName_              -> "Names in `unfolding` clause that are not unambiguous functions."
   UnfoldTransparentName_           -> "Non-`opaque` names mentioned in an `unfolding` clause."
   UselessOpaque_                   -> "`opaque` blocks that have no effect."
   -- Cubical
