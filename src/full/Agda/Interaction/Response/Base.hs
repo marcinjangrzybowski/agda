@@ -18,6 +18,7 @@ module Agda.Interaction.Response.Base
   , AstNodeId
   , AstNode(..)
   , AstMapPayload(..)
+  , ResponseAddedArgsEntry(..)
   ) where
 
 import Control.Monad.Trans ( MonadIO(liftIO) )
@@ -82,7 +83,7 @@ data Response_boot tcErr tcWarning warningsAndNonFatalErrors closureRange
       -- completed.
     | Resp_AstMap AstMapPayload
       -- ^ Push the whole-file AST→range map for the current file (single shot).
-
+    | Resp_AddedArgs [(Int,Int)]
 -- | Should token-based highlighting be removed in conjunction with
 -- the application of new highlighting (in order to reduce the risk of
 -- flicker)?
@@ -118,6 +119,7 @@ data DisplayInfo_boot tcErr tcWarning warningsAndNonFatalErrors closureRange
     | Info_NormalForm CommandState ComputeMode (Maybe CPUTime) A.Expr
     | Info_InferredType CommandState (Maybe CPUTime) A.Expr
     | Info_Context InteractionId (Maybe closureRange) [ResponseContextEntry]
+    | Info_AddedHiddenArgs closureRange [ResponseAddedArgsEntry]
     | Info_Version
     | Info_GoalSpecific InteractionId (Maybe closureRange) (GoalDisplayInfo_boot tcErr)
 
@@ -159,6 +161,12 @@ data ResponseContextEntry = ResponseContextEntry
   , respType     :: Arg A.Expr  -- ^ The type.
   , respLetValue :: Maybe A.Expr -- ^ The value (if it is a let-bound variable)
   , respInScope  :: NameInScope -- ^ Whether the 'respReifName' is in scope.
+  }
+
+
+data ResponseAddedArgsEntry = ResponseAddedArgsEntry
+  { raaeName     :: Name
+  , raaeValue    :: A.Expr
   }
 
 

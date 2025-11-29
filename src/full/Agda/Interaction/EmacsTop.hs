@@ -171,6 +171,18 @@ lispifyResponse = \case
       , Q $ L (map (A . show) (astTopLevel m))
       , Q $ L (map lispifyAstNode (astNodes m))
       ]
+
+  Resp_AddedArgs sites -> pure $ L
+        [ A "agda2-added-args-update"
+        , Q (L (map lispifySite sites))
+        ]
+    
+    where
+      lispifySite :: (Int, Int) -> Lisp String
+      lispifySite (pos, n) =
+        -- Each site becomes a 2-element list (POS N)
+        L [ A (show pos), A (show n) ]
+   
 lispifyDisplayInfo :: DisplayInfo -> TCM (Lisp String)
 lispifyDisplayInfo = \case
 
@@ -265,6 +277,10 @@ lispifyDisplayInfo = \case
     Info_Context _ (Just cl) ctx -> do
       doc <- localTCState (withMetaInfo cl $ prettyResponseContext' False ctx)
       format "*Context*" doc
+
+    Info_AddedHiddenArgs cl args -> do
+      doc <- localTCState (withMetaInfo cl $ prettyResponseAddedArgs args)
+      format "*Hidden added arguments*" doc
 
     Info_Intro_NotFound ->
       format "*Intro*" "No introduction forms found."
@@ -504,6 +520,24 @@ prettyResponseContext' rev ctx = do
     parenSep docs
       | null docs = empty
       | otherwise = (" " <+>) $ parens $ fsep $ punctuate comma docs
+
+prettyResponseAddedArgs
+  :: [ResponseAddedArgsEntry]
+  -> TCM Doc
+prettyResponseAddedArgs ctx = 
+  do
+  align 10 . concat <$> do
+    forM ctx $ \ (ResponseAddedArgsEntry n expr) -> do
+      let
+        prettyArgName :: String
+        prettyArgName = prettyShow n
+
+      val <- prettyATop expr
+     
+
+      return $
+        [(prettyArgName, "=" <+> val)]
+
 
 prettyResponseContext
   :: InteractionId  -- ^ Context of this meta-variable.

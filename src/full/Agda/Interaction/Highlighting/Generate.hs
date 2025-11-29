@@ -36,6 +36,7 @@ import Data.Semigroup (sconcat)
 import Data.Sequence (Seq)
 import qualified Data.Set as Set
 import qualified Data.Text.Lazy as Text
+import Data.Text (unpack)
 
 import Agda.Interaction.Response
   ( RemoveTokenBasedHighlighting( KeepHighlighting ) )
@@ -489,7 +490,8 @@ warningHighlighting' b w = case tcWarning w of
   WithoutKFlagPrimEraseEquality -> mempty
   ConflictingPragmaOptions{} -> mempty
   DeprecationWarning{}       -> mempty
-  UserWarning{}              -> cosmeticProblemHighlighting (w { tcWarningRange = P.followingChar (tcWarningRange w)})
+  UserWarning s              ->
+     hiddenArgsInfoHighlighting (P.followingChar (tcWarningRange w)) (unpack s)
   LibraryWarning{}           -> mempty
   ConfluenceCheckingIncompleteBecauseOfMeta{} -> confluenceErrorHighlighting w
   ConfluenceForCubicalNotSupported{} -> mempty
@@ -667,6 +669,19 @@ cosmeticProblemHighlighting a = H.singleton (rToR $ P.continuousPerLine r) m
   where
     r = getRange a
     m = parserBased { otherAspects = Set.singleton CosmeticProblem }
+
+hiddenArgsInfoHighlighting :: Range -> String -> HighlightingInfoBuilder
+hiddenArgsInfoHighlighting r s =
+  mconcat
+  [ 
+    H.singleton (rToR $ P.continuousPerLine r) mempty
+  , 
+    H.singleton (rToR r)
+         $ parserBased { otherAspects = Set.singleton CosmeticProblem
+                       , note         = s
+                       }
+  ]
+
 
 confluenceErrorHighlighting ::
   HasRange a => a -> HighlightingInfoBuilder

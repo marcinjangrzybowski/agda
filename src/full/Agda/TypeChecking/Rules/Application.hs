@@ -571,7 +571,7 @@ type CheckArgumentsE' = ExceptT (ArgsCheckState A.ArgsWithInfo) TCM (ArgsCheckSt
 
 onCheckArgumentsE' :: CheckArgumentsE'State -> ExceptT (ArgsCheckState A.ArgsWithInfo) TCM ()
 onCheckArgumentsE' S{ .. } =
-   lift $ putClosuresRangesAt (ClosureRangeArtefact (getRange sFun) sFunType Nothing [])
+   lift $ putClosuresRangesAt (ClosureRangeArtefact (getRange sFun) sFunType Nothing)
 
 checkArgumentsE'
   :: CheckArgumentsE'State
@@ -840,16 +840,15 @@ checkArgumentsE'
       let upd :: ArgsCheckState a -> ArgsCheckState a
           upd st = st{ acCheckedArgs = cas ++ ca : acCheckedArgs st }
       -- Add checked arguments to both regular and exceptional result of @cont@.
-      -- unless (null cas) $ do
-         -- lift $ do
-         --  putPreRangesArtefactsExprAt (getRange sFun)
-         --     (PRAHiddenArgs (map (fmap caElim) nms))
-         -- lift $ putClosuresRangesAt (ClosureRangeArtefact (getRange (fuseRange sFun sArgs)) sFunType Nothing [])
+
       unless (null cas && null nms) $ do
           cs <- useTC (lensPostScopeState . lensClosuresRanges)
-          case cs of
-             Just _ -> lift (warning (UserWarning (pack ("H:" ++ show (length nms)))))
-             Nothing -> pure ()
+          case (cs , rangeToPosPair (getRange sFun)) of
+             (Just _ , Just (_ , endPos)) ->
+                    
+                  lift $ putAddedHiddenArgsArtefact endPos (map (fmap caElim) nms) 
+                 -- lift (warning (UserWarning (pack ("H:" ++ show (length nms)))))
+             _ -> pure ()
       withError upd $ upd <$> cont
 
 -- | The result of 'isRigid'.

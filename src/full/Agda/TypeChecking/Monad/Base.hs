@@ -142,7 +142,7 @@ import Agda.Utils.SmallSet (SmallSet, SmallSetElement)
 import Agda.Utils.SmallSet qualified as SmallSet
 import Agda.Utils.Set1 (Set1)
 import Agda.Utils.Singleton
-import Agda.Utils.Tuple (Pair, (&&&) )
+import Agda.Utils.Tuple (Pair, (&&&) , first , second )
 import Agda.Utils.Update
 import Agda.Utils.VarSet qualified as VarSet
 import Agda.Utils.VarSet (VarSet)
@@ -273,13 +273,16 @@ data ClosureRangeArtefact = ClosureRangeArtefact
   { craRange         :: Range
   , craType          :: I.Type
   , craTerm          :: Maybe I.Term
-  , craHiddenArgs    :: [Named_ Elim]
   } deriving (Show, Generic)
+
+type CompilerAddedArgsArtefacts = Map Int (Closure [Named_ I.Elim])
 
 instance HasRange ClosureRangeArtefact where
   getRange = craRange
 
 type ClosureRangeList = Map U.Range (Closure ClosureRangeArtefact)
+type ClosuredArtefacts = (ClosureRangeList,CompilerAddedArgsArtefacts)
+
 
 data PostScopeState = PostScopeState
   { stPostSyntaxInfo          :: !HighlightingInfo
@@ -364,7 +367,7 @@ data PostScopeState = PostScopeState
     -- ^ Is this a context where we should always try every possible
     -- instance candidate? Used to support "inert improvement", see
     -- @shouldBlockOverlap@ in InstanceArguments.
-  , stClosuresRanges    :: !(Maybe ClosureRangeList)
+  , stClosuresRanges    :: !(Maybe ClosuredArtefacts)
   }
   deriving (Generic)
 
@@ -804,7 +807,7 @@ lensInstantiateBlocking f s = f (stPostInstantiateBlocking s) <&> \ x -> s { stP
 lensInstanceHack :: Lens' PostScopeState Bool
 lensInstanceHack f s = f (stPostInstanceHack s) <&> \ x -> s { stPostInstanceHack = x }
 
-lensClosuresRanges :: Lens' PostScopeState (Maybe ClosureRangeList)
+lensClosuresRanges :: Lens' PostScopeState (Maybe ClosuredArtefacts)
 lensClosuresRanges f s = f (stClosuresRanges s) <&> \ x -> s { stClosuresRanges = x }
 
 -- * @st@-prefixed lenses
@@ -1181,12 +1184,18 @@ putClosuresRangesAt cra@(ClosureRangeArtefact{..}) =
     Just _ -> do
        cl <- buildClosure cra
        modifyTCLens (lensPostScopeState . lensClosuresRanges)
-           (fmap (Map.insertWith (\a _ -> a) (rangeToRange  craRange) cl))
+           (fmap (first (Map.insertWith (\a _ -> a) (rangeToRange  craRange) cl)))
+
+putAddedHiddenArgsArtefact :: Int -> [Named_ I.Elim] -> TCM ()
+putAddedHiddenArgsArtefact pos args = do
+       cl <- buildClosure args
+       modifyTCLens (lensPostScopeState . lensClosuresRanges)
+           (fmap (second (Map.insertWith (\a _ -> a) pos cl)))
 
 
 putClosuresRangesType :: I.Type -> Maybe I.Term -> TCM ()
 putClosuresRangesType ty mbTm = do 
-  ((\r -> ClosureRangeArtefact r ty mbTm  []) <$> asksTC envRange) >>= putClosuresRangesAt
+  ((\r -> ClosureRangeArtefact r ty mbTm) <$> asksTC envRange) >>= putClosuresRangesAt
 
 -- | Create a fresh name from @a@.
 class FreshName a where
@@ -6546,6 +6555,7 @@ defaultInteractionOutputCallback = \case
   Resp_DoneAborting {}      -> __IMPOSSIBLE__
   Resp_DoneExiting {}       -> __IMPOSSIBLE__
   Resp_AstMap {}            -> __IMPOSSIBLE__
+  Resp_AddedArgs {}         -> __IMPOSSIBLE__
 
 ---------------------------------------------------------------------------
 -- * Names for generated definitions

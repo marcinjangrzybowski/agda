@@ -243,6 +243,7 @@ constituents.")
     (agda2-refine                            "\C-c\C-r"           (local)        "Refine")
     (agda2-mimer-maybe-all                   "\C-c\C-a"           (local global) "Auto")
     (agda2-make-case                         "\C-c\C-c"           (local)        "Case")
+    (agda2-added-args                        ,(kbd "C-c C-q")     (global)       "Add arguments at point")
     (agda2-goal-type                         "\C-c\C-t"           (local)        "Goal type")
     (agda2-show-context                      "\C-c\C-e"           (local)        "Context (environment)")
     (agda2-helper-function-type              "\C-c\C-h"           (local)        "Helper function type")
@@ -1428,7 +1429,124 @@ Along with their types."
   "Search About an identifier"
   "Cmd_search_about_toplevel"
   "Name"
-)
+  )
+
+(defface agda2-added-args-face
+  '((t :inherit default
+       :foreground "saddle brown"
+       :height 0.7))
+  "Face used for the small in-buffer numbers for added args.")
+
+(defvar agda2-added-args-sites nil
+  "List of positions where `Cmd_added_args` can be invoked.
+
+Each element is a cons cell (POS . N) where POS is an absolute
+buffer position (1-based) and N is the small integer to display
+as a subscript at that position.")
+(make-variable-buffer-local 'agda2-added-args-sites)
+
+(defvar agda2-added-args-visible nil
+  "Non-nil if added-args numbers are currently shown in this buffer.")
+(make-variable-buffer-local 'agda2-added-args-visible)
+
+(defvar agda2-added-args-overlays nil
+  "Overlays used to display added-args numbers in the current buffer.")
+(make-variable-buffer-local 'agda2-added-args-overlays)
+
+
+(defun agda2-abs-pos (&optional p)
+  "Return the absolute buffer position (1-based) of P (or of point).
+
+This uses `widen' so the position is measured in the full buffer,
+not just a narrowed view."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (when p (goto-char p))
+      (point))))
+
+(defun agda2-added-args--display-string (n)
+  "Return the styled string to display for the added-args label N."
+  (let ((txt (number-to-string n)))
+    (propertize txt
+                'face 'agda2-added-args-face
+                ;; Make it small, and a bit above the baseline
+                'height 0.7
+                'raise 0.4)))
+
+
+(defun agda2-added-args-clear-overlays ()
+  "Remove all overlays for added-args numbers in the current buffer."
+  (when agda2-added-args-overlays
+    (mapc #'delete-overlay agda2-added-args-overlays)
+    (setq agda2-added-args-overlays nil)))
+
+(defun agda2-added-args-show ()
+  "Show added-args numbers for the current buffer."
+  (agda2-added-args-clear-overlays)
+  (dolist (site agda2-added-args-sites)
+    (let ((pos (car site))
+          (n   (cdr site)))
+      (when (and (integerp pos) (integerp n))
+        ;; Create a zero-length overlay at POS and stick a display string
+        ;; right after it. The buffer text is not modified; this only
+        ;; affects how the buffer is rendered.
+        (let* ((ov  (make-overlay pos pos nil t nil))
+               (str (agda2-added-args--display-string n)))
+          (overlay-put ov 'agda2-added-args t)
+          (overlay-put ov 'after-string str)
+          (push ov agda2-added-args-overlays)))))
+  (setq agda2-added-args-visible t))
+
+
+(defun agda2-added-args-update (sites)
+  "Register potential added-args positions.
+
+SITES is a list of pairs (POS N), where POS and N are integers.
+This function does not automatically show the numbers; it only
+updates the data.  If numbers are currently visible they are
+refreshed in-place."
+  ;; Normalise the incoming list `((pos n) ...)` to cons cells (pos . n).
+  (setq agda2-added-args-sites
+        (mapcar (lambda (pair)
+                  (cons (car pair) (cadr pair)))
+                sites))
+  (when agda2-added-args-visible
+    (agda2-added-args-show)))
+
+(defun agda2-added-args ()
+  "Context-sensitive command for added arguments.
+
+Behaviour:
+
+* If added-args numbers are currently hidden, show them.
+* If numbers are visible and point is on one of the marked positions,
+  send (Cmd_added_args <pos>) to Agda.
+* If numbers are visible and point is not on a marked position,
+  hide the numbers again."
+  (interactive)
+  (if (not agda2-added-args-visible)
+      ;; Numbers are currently off: turn them on.
+      (agda2-added-args-show)
+    ;; Numbers are on: either run Cmd_added_args or toggle them off.
+    (let* ((pos (agda2-abs-pos))
+           (site (assq pos agda2-added-args-sites)))
+      (if site
+          ;; On a site => run `Cmd_added_args pos`.
+          (agda2-go 'save t 'busy t
+                    "Cmd_added_args"
+                    (format "%d" pos))
+        ;; Not on a site => toggle numbers off.
+        (agda2-added-args-hide)))))
+
+
+
+(defun agda2-added-args-hide ()
+  "Hide added-args numbers for the current buffer."
+  (agda2-added-args-clear-overlays)
+  (setq agda2-added-args-visible nil))
+
+
 
 (defun agda2-module-contents-maybe-toplevel ()
   "Shows all the top-level names in the given module.

@@ -108,6 +108,7 @@ import Agda.Utils.FileName
 import Agda.Utils.Hash
 import Agda.Utils.IO.Binary
 import Agda.Utils.Lens
+import Agda.Utils.Tuple (second)
 import Agda.Utils.List ( nubOn )
 import Agda.Utils.Maybe
 import qualified Agda.Utils.Maybe.Strict as Strict
@@ -1154,8 +1155,8 @@ createInterface mname sf@(SourceFile sfi) isMain msrc = do
     ifTopLevel $ do
        let astPld = buildAstMapFromExprLike OpaqueWrappers R.AstLineCol ds
        appInteractionOutputCallback $
-          R.Resp_AstMap astPld  
-    
+          R.Resp_AstMap astPld
+
     -- Highlighting from scope checker.
     reportSLn "import.iface.highlight" 15 $ prettyShow mname ++ ": Starting highlighting from scope."
     Bench.billTo [Bench.Highlighting] $ do
@@ -1194,16 +1195,11 @@ createInterface mname sf@(SourceFile sfi) isMain msrc = do
         reportSLn "import.iface.create" 7 $ prettyShow mname ++ ": Skipping type checking."
         cacheCurrentLog
       else do
-        ifTopLevel $ setTCLens (lensPostScopeState . lensClosuresRanges) (Just empty)
+        ifTopLevel $ setTCLens (lensPostScopeState . lensClosuresRanges) (Just (empty,empty))
         reportSLn "import.iface.create" 7 $ prettyShow mname ++ ": Starting type checking."
         Bench.billTo [Bench.Typing] $ mapM_ checkDeclCached ds `finally_` cacheCurrentLog
         reportSLn "import.iface.create" 7 $ prettyShow mname ++ ": Finished type checking."
         
-
-        -- modifyTCLens (lensPostScopeState . lensClosuresRanges)
-        --   (fmap $ (filter (not . null . craRange . clValue ) . map (fmap (\x ->
-        --         let alignedRange = alignRangeToAbstractExprLikeDecls ds (craRange x)
-        --         in (x {craRange = alignedRange})))))
     -- Ulf, 2013-11-09: Since we're rethrowing the error, leave it up to the
     -- code that handles that error to reset the state.
     -- Ulf, 2013-11-13: Errors are now caught and highlighted in InteractionTop.
@@ -1213,6 +1209,13 @@ createInterface mname sf@(SourceFile sfi) isMain msrc = do
     --   throwError e
 
     unfreezeMetas
+    ifTopLevel $ do
+       clrs <- useTC (lensPostScopeState . lensClosuresRanges)
+       case clrs of
+         Nothing -> pure ()
+         Just (_ , addedArgs) ->
+            appInteractionOutputCallback $
+               R.Resp_AddedArgs (map (second (length . clValue)) (Map.toList addedArgs))  
 
     -- Profiling: Count number of metas.
     whenProfile Profile.Metas $ do

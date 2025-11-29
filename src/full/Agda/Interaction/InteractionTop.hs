@@ -38,6 +38,8 @@ import Agda.TypeChecking.Errors
 import Agda.TypeChecking.Opacity (saturateOpaqueBlocks)
 import Agda.TypeChecking.Rules.Term (checkExpr, isType_)
 import Agda.TypeChecking.Warnings (warning)
+import Agda.TypeChecking.Monad.Closure
+
 
 import Agda.Syntax.Fixity
 import Agda.Syntax.Position
@@ -463,6 +465,7 @@ updateInteractionPointsAfter Cmd_make_case{}                     = True
 updateInteractionPointsAfter Cmd_compute{}                       = False
 updateInteractionPointsAfter Cmd_why_in_scope{}                  = False
 updateInteractionPointsAfter Cmd_why_in_scope_toplevel{}         = False
+updateInteractionPointsAfter Cmd_added_args{}                    = False
 updateInteractionPointsAfter Cmd_show_version{}                  = False
 updateInteractionPointsAfter Cmd_abort{}                         = False
 updateInteractionPointsAfter Cmd_exit{}                          = False
@@ -844,7 +847,11 @@ interpret (Cmd_compute cmode ii rng s) = do
                   Just tm -> B.evalInCurrentTm cmode (craType ra) tm
   display_info $ Info_GoalSpecific ii mbcl (Goal_NormalForm cmode expr)
 
-
+interpret (Cmd_added_args p) = do
+    (mbc , entries) <- liftLocalState (B.pickGenArgsArtefact p)
+    case mbc of
+       Just c -> display_info (Info_AddedHiddenArgs c entries)
+       Nothing -> display_info $ Info_Error $ Info_GenericError $ GenericException "fatal : not post app point!"
 
 interpret Cmd_show_version = display_info Info_Version
 

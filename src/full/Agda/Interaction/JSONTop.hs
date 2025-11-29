@@ -371,7 +371,8 @@ instance EncodeTCM DisplayInfo where
     [ "interactionPoint"  @= ii
     , "goalInfo"          #= withInteractionId ii (encodeGoalSpecific ii info)
     ]
-
+  encodeTCM (Info_AddedHiddenArgs _ _) = error "not implemneted yet.."
+  
 instance EncodeTCM GoalTypeAux where
   encodeTCM GoalOnly = kind "GoalOnly" []
   encodeTCM (GoalAndHave expr _) = kind "GoalAndHave"
@@ -477,6 +478,7 @@ instance EncodeTCM Response where
     [ "solution" @= str
     ]
   encodeTCM (Resp_AstMap payload) = encodeTCM payload
+  encodeTCM (Resp_AddedArgs _) = error "not implemneted yet.."
   
 -- | Convert Response to an JSON value for interactive editor frontends.
 jsonifyResponse :: Response -> TCM ByteString

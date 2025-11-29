@@ -331,6 +331,7 @@ data Interaction' range
   | Cmd_why_in_scope    InteractionId range String
   | Cmd_why_in_scope_toplevel String
     -- | Displays version of the running Agda
+  | Cmd_added_args Int
   | Cmd_show_version
   | Cmd_abort
     -- ^ Abort the current computation.

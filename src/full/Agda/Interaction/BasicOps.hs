@@ -25,7 +25,7 @@ import qualified Data.Text as T
 import Agda.Interaction.Base
 import Agda.Interaction.Output
 import Agda.Interaction.Options
-import Agda.Interaction.Response (Goals, ResponseContextEntry(..))
+import Agda.Interaction.Response (Goals, ResponseContextEntry(..), ResponseAddedArgsEntry(..))
 
 import qualified Agda.Syntax.Concrete as C -- ToDo: Remove with instance of ToConcrete
 import Agda.Syntax.Position
@@ -872,7 +872,7 @@ getWarningsAndNonFatalErrors = do
 instance ClosureRangeTC (InteractionId , Range) where
   closureRangeTC (InteractionId (-1) , rng) = do
     
-      cs <- useTC (lensPostScopeState . lensClosuresRanges)
+      cs <- (fmap fst) <$> useTC (lensPostScopeState . lensClosuresRanges)
       case cs >>= Map.lookup (rangeToRange rng) of
           --smallestContaining (craRange . clValue) rng of
         Nothing -> error "no closure for that range"
@@ -882,9 +882,33 @@ instance ClosureRangeTC (InteractionId , Range) where
 
 pickRangeArtefact :: Range -> TCM (Maybe (ClosureRangeArtefact)) 
 pickRangeArtefact rng = do
-  cs <- useTC (lensPostScopeState . lensClosuresRanges)
+  cs <- (fmap fst) <$> useTC (lensPostScopeState . lensClosuresRanges)
   pure ((clValue) <$> (cs >>= Map.lookup (rangeToRange rng)))
-  
+
+pickGenArgsArtefact :: Int -> TCM ((Maybe (Closure Range)) , [ResponseAddedArgsEntry])
+pickGenArgsArtefact p = do
+  cs <- (fmap snd) <$> useTC (lensPostScopeState . lensClosuresRanges)
+  case (cs >>= Map.lookup p) of
+    Just clArgs ->
+             let clr = (fmap (\_ -> noRange) clArgs)
+             in withMetaInfo clr $ do
+                 rces <- mapMaybeM (mkRCE) (clValue clArgs)
+                 pure (Just clr , rces) 
+
+    Nothing -> return (Nothing , [])
+
+
+ where
+   mkRCE :: (Named_ I.Elim) -> TCM (Maybe ResponseAddedArgsEntry)
+   mkRCE nmd = 
+    case (I.isApplyElim (namedThing nmd)) of
+      Just (Arg _ y) -> do
+         let n = case nameOf nmd of
+                   Nothing -> "_"
+                   Just x -> rangedThing (woThing x)
+         e <- normalise y >>= reifyUnblocked
+         pure (Just (ResponseAddedArgsEntry (C.simpleName n) e))
+      Nothing -> return Nothing
         
 withClosureRnage'wrp :: InteractionId -> Range -> (Closure Range -> TCM b) ->
   TCM ((Maybe (Closure Range)) , b)
