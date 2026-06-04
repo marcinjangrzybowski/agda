@@ -604,8 +604,16 @@ getInterface x isMain msrc = locallyTC eImportStack (x :) do
       reportSLn "import.iface" 15 $ "  Check for cycle"
       checkForImportCycle
 
-      mi <- Bench.billTo [Bench.Import] (getStoredInterface x file msrc)
-        `catchExceptT` \ reason -> do
+      forceCreateMainInterface <- case isMain of
+        MainInterface{} -> optPrintASTJson <$> commandLineOptions
+        NotMainInterface -> pure False
+
+      mi <- if forceCreateMainInterface then do
+          reportSLn "import.iface" 5 $
+            "  rechecking " ++ prettyShow x ++ " for --print-ast-json."
+          createInterface x file isMain msrc
+        else Bench.billTo [Bench.Import] (getStoredInterface x file msrc)
+          `catchExceptT` \ reason -> do
 
             reportSLn "import.iface" 5 $ concat ["  ", prettyShow x, " is not up-to-date because ", reason, "."]
             setCommandLineOptions . stPersistentOptions . stPersistentState =<< getTC

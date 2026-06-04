@@ -10,6 +10,8 @@ import Control.Monad.IO.Class
          ( MonadIO(..) )
 
 import Data.ByteString.Lazy (ByteString)
+import Data.Aeson.Types
+         ( Pair )
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Text as T
@@ -515,6 +517,7 @@ astFileNode contents file AstMapPayload{..} = object
       ]
 
     sourceMap = sourcePositionMap contents
+    sourceText = T.pack contents
 
     astNodeToValue nodeId =
       case IntMap.lookup (fromIntegral nodeId) nodeById of
@@ -537,12 +540,34 @@ astFileNode contents file AstMapPayload{..} = object
                 , "end_col"      .= sourceColumn end
                 , "start_offset" .= astNodeBeg
                 , "end_offset"   .= astNodeEnd
-                ]
+                ] ++ sourceValueFields sourceText astNodeBeg astNodeEnd
               children =
                 [ "children" .= map astNodeToValue astNodeChildren
                 | not (null astNodeChildren)
                 ]
           in object (base ++ children)
+
+maxAstValueLength :: Int
+maxAstValueLength = 200
+
+sourceValueFields :: T.Text -> AstNodeId -> AstNodeId -> [Pair]
+sourceValueFields source begin end
+  | T.null value = []
+  | otherwise =
+      [ "value" .= clippedValue ] ++
+      [ "full_length" .= valueLength | valueLength > maxAstValueLength ]
+  where
+    value        = sourceSlice source begin end
+    valueLength  = T.length value
+    clippedValue = T.take maxAstValueLength value
+
+sourceSlice :: T.Text -> AstNodeId -> AstNodeId -> T.Text
+sourceSlice source begin end
+  | end <= begin = T.empty
+  | otherwise    = T.take length' . T.drop start $ source
+  where
+    start   = max 0 (fromIntegral begin - 1)
+    length' = fromIntegral (end - begin)
 
 data SourcePosition = SourcePosition
   { sourceLine   :: !Int

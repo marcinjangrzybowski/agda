@@ -4,9 +4,8 @@ module Agda.Interaction.ASTMap
   ) where
 
 import Prelude
+import Control.Monad (void)
 import Control.Monad.State.Strict (State, execState, get, put)
-import Data.List  (sortBy)
-import Data.Ord   (comparing)
 import Data.Word  (Word32)
 import qualified Data.IntMap.Strict as IM
 import qualified Data.DList         as DL
@@ -48,21 +47,9 @@ buildAstMapFromExprLike
   -> AstMapPayload
 buildAstMapFromExprLike wmode posKind roots =
   let
-    -- 1) Flatten all roots into ranged nodes (kind, beg, end)
-    flat0 :: [FlatNode]
-    flat0 = concatMap (collectFlat wmode) roots
-
-    -- 2) Remove invalid/empty, sort by (beg ASC, end DESC) for containment scan
-    flat :: [FlatNode]
-    flat =
-      sortBy (comparing fnBeg <> flip (comparing fnEnd))
-      $ filter (\fn -> fnBeg fn < fnEnd fn) flat0
-
-    -- 3) Build forest: ids, children, and top-level ids
     Build{ bNodes = nodesMap, bOrder = order, bTopLevel = tops } =
-      buildByContainment flat
+      buildByTraversal wmode roots
 
-    -- 4) Materialize node list in creation order
     orderedNodes :: [AstNode]
     orderedNodes = map (\i -> nodesMap IM.! i2i i) order
   in
@@ -75,39 +62,17 @@ buildAstMapFromExprLike wmode posKind roots =
 --------------------------------------------------------------------------------
 -- Internals
 
--- A single flat (pre-tree) node harvested from an 'ExprLike' fold
+-- A single AST node harvested from an 'ExprLike' traversal.
 data FlatNode = FlatNode
   { fnKind :: !String
   , fnBeg  :: !Word32
   , fnEnd  :: !Word32
   } deriving (Eq, Show)
 
--- Collect a flat list of nodes from one 'ExprLike' root, optionally omitting
--- wrapper nodes while still traversing into their (single) child.
-collectFlat :: forall a. ExprLike a => WrapperMode -> a -> [FlatNode]
-collectFlat wmode x =
-  DL.toList $ foldExprLike go x
-  where
-    go :: forall b. ExprLike b => b -> DL.DList FlatNode
-    go node =
-      case rangeToPosPair (getRange node) of
-        Just (s, e) | s < e ->
-          let beg = fromIntegral s :: Word32
-              end = fromIntegral e :: Word32
-              kd  = ctorName node
-              emit = DL.singleton (FlatNode kd beg end)
-          in  case wmode of
-                -- Keep wrappers as ordinary nodes.
-                IncludeWrappers -> emit
-                -- Hide wrappers: do not emit the wrapper itself,
-                -- but still traverse (foldExprLike already visits children).
-                OpaqueWrappers  -> if isWrapper node then mempty else emit
-        _ -> mempty
-
--- Builder state for deriving a forest by containment
+-- Builder state for deriving a forest from the actual 'ExprLike' traversal.
 data Build = Build
   { bNextId   :: !AstNodeId                       -- next fresh id (starts at 1)
-  , bStack    :: [(AstNodeId, Word32)]            -- open containers: (id, end)
+  , bStack    :: [AstNodeId]                      -- open structural parents
   , bNodes    :: IM.IntMap AstNode                -- id → node (without children until closed)
   , bKids     :: IM.IntMap (DL.DList AstNodeId)   -- id → accumulated children
   , bOrder    :: [AstNodeId]                      -- creation order (deterministic output)
@@ -122,23 +87,44 @@ emptyBuild = Build
   , bKids     = IM.empty
   , bOrder    = []
   , bTopLevel = []
-  }
+}
 
--- Turn a sorted flat list into a forest using a containment stack
-buildByContainment :: [FlatNode] -> Build
-buildByContainment xs = execState (mapM_ step xs) emptyBuild
+-- Turn an 'ExprLike' forest into an AST map using structural recursion.
+buildByTraversal :: ExprLike a => WrapperMode -> [a] -> Build
+buildByTraversal wmode roots = execState (mapM_ (void . recurseExprLike visit) roots) emptyBuild
   where
-    step :: FlatNode -> State Build ()
-    step FlatNode{..} = do
-      -- Close all finished containers before placing this node
-      popFinished fnBeg
-      -- Allocate & insert node
+    visit :: ExprLike b => b -> State Build b -> State Build b
+    visit node post =
+      case nodeInfo node of
+        Just flat | shouldEmit node -> emitNode flat post
+        _                          -> post
+
+    shouldEmit :: ExprLike b => b -> Bool
+    shouldEmit node =
+      case wmode of
+        IncludeWrappers -> True
+        OpaqueWrappers  -> not (isWrapper node)
+
+    emitNode :: FlatNode -> State Build b -> State Build b
+    emitNode FlatNode{..} post = do
       bid <- freshId
       insertNode bid fnKind fnBeg fnEnd
-      -- Attach to the current parent if any; otherwise it’s a top-level root
       attachToParent bid
-      -- Become the new innermost container
-      pushContainer bid fnEnd
+      pushContainer bid
+      result <- post
+      popContainer bid
+      pure result
+
+    nodeInfo :: ExprLike b => b -> Maybe FlatNode
+    nodeInfo node =
+      case rangeToPosPair (getRange node) of
+        Just (s, e) | s < e ->
+          Just FlatNode
+            { fnKind = ctorName node
+            , fnBeg  = fromIntegral s
+            , fnEnd  = fromIntegral e
+            }
+        _ -> Nothing
 
     freshId :: State Build AstNodeId
     freshId = do
@@ -167,28 +153,24 @@ buildByContainment xs = execState (mapM_ step xs) emptyBuild
       st <- get
       case bStack st of
         [] -> put st{ bTopLevel = bTopLevel st ++ [i] }
-        (p, _):_ ->
+        p : _ ->
           put st{ bKids = IM.adjust (<> DL.singleton i) (i2i p) (bKids st) }
 
-    pushContainer :: AstNodeId -> Word32 -> State Build ()
-    pushContainer i e = do
+    pushContainer :: AstNodeId -> State Build ()
+    pushContainer i = do
       st <- get
-      put st{ bStack = (i, e) : bStack st }
+      put st{ bStack = i : bStack st }
 
-    popFinished :: Word32 -> State Build ()
-    popFinished curBeg = do
+    popContainer :: AstNodeId -> State Build ()
+    popContainer i = do
       st <- get
       case bStack st of
-        [] -> pure ()
-        (j, endJ):rest
-          | endJ <= curBeg -> do
-              -- finalize j with its accumulated children
-              let kids = maybe [] DL.toList (IM.lookup (i2i j) (bKids st))
-                  node = (bNodes st IM.! i2i j){ astNodeChildren = kids }
-              put st{ bStack = rest
-                    , bNodes = IM.insert (i2i j) node (bNodes st) }
-              popFinished curBeg
-          | otherwise -> pure ()
+        j : rest | i == j -> do
+          let kids = maybe [] DL.toList (IM.lookup (i2i i) (bKids st))
+              node = (bNodes st IM.! i2i i){ astNodeChildren = kids }
+          put st{ bStack = rest
+                , bNodes = IM.insert (i2i i) node (bNodes st) }
+        _ -> pure ()
 
 -- small helper
 i2i :: AstNodeId -> Int

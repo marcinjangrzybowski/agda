@@ -361,27 +361,31 @@ instance ExprLike a => ExprLike (Arg a) where
 instance ExprLike a => ExprLike (Maybe a) where
   ctorName Nothing  = "Nothing"
   ctorName (Just _) = "Just"
+  isWrapper _ = True
 
 instance ExprLike a => ExprLike (Named x a) where
   ctorName (Named _ _) = "Named"
   isWrapper _ = True
 instance ExprLike a => ExprLike (Ranged a) where
   ctorName _ = "Ranged"
+  isWrapper _ = True
 
 instance ExprLike a => ExprLike [a] where
   ctorName []      = "[]"
   ctorName (_:_)   = ":"
+  isWrapper _ = True
 
 instance ExprLike a => ExprLike (List1 a) where
   ctorName (_ :| _) = ":|"
-
-  isWrapper (_ :| []) = True
-  isWrapper (_ :| _) = False
+  isWrapper _ = True
   
 instance ExprLike a => ExprLike (TacticAttribute' a) where
   ctorName _ = "TacticAttribute'"
+  isWrapper _ = True
 
 instance (ExprLike a, ExprLike b) => ExprLike (a, b) where
+  ctorName _ = "Tuple"
+  isWrapper _ = True
   recurseExpr f (x, y) = (,) <$> recurseExpr f x <*> recurseExpr f y
 
 instance ExprLike Void where
@@ -398,16 +402,23 @@ instance (ExprLike a, ExprLike b) => ExprLike (Either a b) where
                                  (recurseExpr f)
 
 instance ExprLike BindName where
+  ctorName _ = "BindName"
   recurseExpr f = pure
   recurseExprLike g x = g x (pure x)
 instance ExprLike ModuleName where
+  ctorName _ = "ModuleName"
   recurseExpr f = pure
   recurseExprLike g x = g x (pure x)
 instance ExprLike QName where
+  ctorName _ = "QName"
   recurseExpr _ = pure
   recurseExprLike g x = g x (pure x)
 
 instance ExprLike LamBinding where
+  ctorName = \case
+    DomainFree{} -> "DomainFree"
+    DomainFull{} -> "DomainFull"
+
   recurseExpr f e =
     case e of
       DomainFree t x -> DomainFree <$> recurseExpr f t <*> pure x
@@ -431,6 +442,8 @@ instance ExprLike LamBinding where
       rec = recurseExprLike g
 
 instance ExprLike GeneralizeTelescope where
+  ctorName _ = "GeneralizeTelescope"
+
   recurseExpr  f (GeneralizeTel s tel) = GeneralizeTel s <$> recurseExpr f tel
   foldExpr     f (GeneralizeTel s tel) = foldExpr f tel
   traverseExpr f (GeneralizeTel s tel) = GeneralizeTel s <$> traverseExpr f tel
@@ -440,6 +453,8 @@ instance ExprLike GeneralizeTelescope where
     where rec = recurseExprLike g
 
 instance ExprLike DataDefParams where
+  ctorName _ = "DataDefParams"
+
   recurseExpr  f (DataDefParams s tel) = DataDefParams s <$> recurseExpr f tel
   foldExpr     f (DataDefParams s tel) = foldExpr f tel
   traverseExpr f (DataDefParams s tel) = DataDefParams s <$> traverseExpr f tel
@@ -449,6 +464,9 @@ instance ExprLike DataDefParams where
     where rec = recurseExprLike g
 
 instance ExprLike TypedBindingInfo where
+  ctorName _ = "TypedBindingInfo"
+  isWrapper _ = True
+
   recurseExpr f (TypedBindingInfo s t)  = TypedBindingInfo <$> recurseExpr f s <*> pure t
   foldExpr f (TypedBindingInfo s t)     = foldExpr f s
   traverseExpr f (TypedBindingInfo s t) = TypedBindingInfo <$> traverseExpr f s <*> pure t
@@ -458,6 +476,10 @@ instance ExprLike TypedBindingInfo where
     where rec = recurseExprLike g
 
 instance ExprLike TypedBinding where
+  ctorName = \case
+    TBind{} -> "TBind"
+    TLet{}  -> "TLet"
+
   recurseExpr f e =
     case e of
       TBind r t xs e -> TBind r <$> recurseExpr f t <*> pure xs <*> recurseExpr f e
@@ -481,6 +503,13 @@ instance ExprLike TypedBinding where
       rec = recurseExprLike g
       
 instance ExprLike LetBinding where
+  ctorName = \case
+    LetBind{}    -> "LetBind"
+    LetAxiom{}   -> "LetAxiom"
+    LetPatBind{} -> "LetPatBind"
+    LetApply{}   -> "LetApply"
+    LetOpen{}    -> "LetOpen"
+
   recurseExpr :: forall m. RecurseExprFn m LetBinding
   recurseExpr f e = do
     let
@@ -528,6 +557,8 @@ instance ExprLike LetBinding where
           rec = recurseExprLike g
 
 instance ExprLike AmbiguousQName where
+  ctorName _ = "AmbiguousQName"
+
   -- no Exprs inside; the Expr-focused traversal is a no-op
   recurseExpr _ aq = pure aq
 
@@ -570,6 +601,8 @@ instance ExprLike a => ExprLike (Pattern' a) where
       rec = recurseExprLike g
   
 instance ExprLike a => ExprLike (Clause' a) where
+  ctorName _ = "Clause"
+
   recurseExpr :: forall m. RecurseExprFn m (Clause' a)
   recurseExpr f (Clause lhs spats rhs ds ca) = Clause <$> rec lhs <*> pure spats <*> rec rhs <*> rec ds <*> pure ca
     where
@@ -584,6 +617,12 @@ instance ExprLike a => ExprLike (Clause' a) where
       rec = recurseExprLike g
 
 instance ExprLike RHS where
+  ctorName = \case
+    RHS{}        -> "RHS"
+    AbsurdRHS{}  -> "AbsurdRHS"
+    WithRHS{}    -> "WithRHS"
+    RewriteRHS{} -> "RewriteRHS"
+
   recurseExpr :: forall m. RecurseExprFn m RHS
   recurseExpr f rhs =
     case rhs of
@@ -605,6 +644,11 @@ instance ExprLike RHS where
           rec = recurseExprLike g
 
 instance (ExprLike qn, ExprLike nm, ExprLike p, ExprLike e) => ExprLike (RewriteEqn' qn nm p e) where
+  ctorName = \case
+    Rewrite{} -> "Rewrite"
+    Invert{}  -> "Invert"
+    LeftLet{} -> "LeftLet"
+
   recurseExpr f = \case
     Rewrite es    -> Rewrite <$> recurseExpr f es
     Invert qn pes -> Invert <$> recurseExpr f qn <*> recurseExpr f pes
@@ -618,6 +662,8 @@ instance (ExprLike qn, ExprLike nm, ExprLike p, ExprLike e) => ExprLike (Rewrite
     ll@(LeftLet pes)   -> g ll $ LeftLet <$> recurseExprLike g pes
     
 instance ExprLike WhereDeclarations where
+  ctorName _ = "WhereDeclarations"
+
   recurseExpr f (WhereDecls a b c) = WhereDecls a b <$> recurseExpr f c
 
   recurseExprLike g wd@(WhereDecls a b c) =
@@ -625,6 +671,10 @@ instance ExprLike WhereDeclarations where
     where rec = recurseExprLike g
 
 instance ExprLike ModuleApplication where
+  ctorName = \case
+    SectionApp{}           -> "SectionApp"
+    RecordModuleInstance{} -> "RecordModuleInstance"
+
   recurseExpr :: forall m. RecurseExprFn m ModuleApplication
   recurseExpr f a =
     case a of
@@ -643,6 +693,21 @@ instance ExprLike ModuleApplication where
           rec = recurseExprLike g
 
 instance ExprLike Pragma where
+  ctorName = \case
+    BuiltinPragma{}               -> "BuiltinPragma"
+    OptionsPragma{}               -> "OptionsPragma"
+    BuiltinNoDefPragma{}          -> "BuiltinNoDefPragma"
+    RewritePragma{}               -> "RewritePragma"
+    CompilePragma{}               -> "CompilePragma"
+    StaticPragma{}                -> "StaticPragma"
+    InjectivePragma{}             -> "InjectivePragma"
+    InjectiveForInferencePragma{} -> "InjectiveForInferencePragma"
+    InlinePragma{}                -> "InlinePragma"
+    EtaPragma{}                   -> "EtaPragma"
+    NotProjectionLikePragma{}     -> "NotProjectionLikePragma"
+    OverlapPragma{}               -> "OverlapPragma"
+    DisplayPragma{}               -> "DisplayPragma"
+
   recurseExpr :: forall m. RecurseExprFn m Pragma
   recurseExpr f p =
     case p of
@@ -672,12 +737,19 @@ instance ExprLike Pragma where
           rec = recurseExprLike g
 
 instance ExprLike LHS where
+  ctorName _ = "LHS"
+
   recurseExpr f (LHS i p) = LHS i <$> recurseExpr f p
 
   recurseExprLike g l@(LHS i p) = g l $ LHS i <$> rec p
     where rec = recurseExprLike g
 
 instance ExprLike a => ExprLike (LHSCore' a)   where
+  ctorName = \case
+    LHSHead{} -> "LHSHead"
+    LHSProj{} -> "LHSProj"
+    LHSWith{} -> "LHSWith"
+
   recurseExprLike :: forall m. RecurseLikeFn m (LHSCore' a)
   recurseExprLike g h =
     g h $ case h of
@@ -689,8 +761,12 @@ instance ExprLike a => ExprLike (LHSCore' a)   where
       rec = recurseExprLike g
       
 instance ExprLike a => ExprLike (WithHiding a) where
+  ctorName _ = "WithHiding"
+  isWrapper _ = True
 
 instance ExprLike SpineLHS where
+  ctorName _ = "SpineLHS"
+
   recurseExpr f (SpineLHS i x ps) = SpineLHS i x <$> recurseExpr f ps
 
   recurseExprLike g s@(SpineLHS i x ps) = g s $ SpineLHS i x <$> rec ps
@@ -746,6 +822,9 @@ instance ExprLike Declaration where
   ctorName UnquoteData{}   = "UnquoteData"
   ctorName ScopedDecl{}    = "ScopedDecl"
   ctorName UnfoldingDecl{} = "UnfoldingDecl"
+
+  isWrapper ScopedDecl{} = True
+  isWrapper _            = False
 
   recurseExprLike :: forall m. RecurseLikeFn m Declaration
   recurseExprLike g d =

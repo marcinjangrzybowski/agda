@@ -147,7 +147,8 @@ General options
      Type-check the input file and print the scope-checked abstract AST
      as a single JSON value. The output follows a recursive
      ``{"ast": {"kind": "FileNode", ...}}`` shape with nested ``children``,
-     source lines, columns, and offsets.
+     source lines, columns, and offsets. The input file is reprocessed even if
+     an up-to-date interface file already exists.
 
 .. option:: --interaction-exit-on-error
 
