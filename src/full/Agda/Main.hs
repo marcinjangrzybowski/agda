@@ -11,12 +11,14 @@ import Control.Monad          ( void )
 import Control.Monad.Except   ( MonadError(..), ExceptT(..), runExceptT )
 import Control.Monad.IO.Class ( MonadIO(..) )
 
+import Data.IORef             ( newIORef, readIORef, writeIORef )
 import qualified Data.List as List
 import Data.Function          ( (&) )
 import Data.Functor
 import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as T
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 import System.Environment ( getArgs, getProgName )
 import System.Exit ( exitSuccess, ExitCode )
@@ -32,7 +34,8 @@ import Agda.Interaction.Options
 import Agda.Interaction.Options.BashCompletion (bashComplete, printedOptions)
 import Agda.Interaction.Options.Help (Help (..), helpTopicUsage)
 import Agda.Interaction.EmacsTop (mimicGHCi)
-import Agda.Interaction.JSONTop (jsonREPL)
+import Agda.Interaction.JSONTop (jsonREPL, jsonifyAstFile)
+import qualified Agda.Interaction.Response as R
 import Agda.Interaction.FindFile ( SourceFile(SourceFile) )
 import Agda.Interaction.Imports qualified as Imp
 
@@ -182,6 +185,8 @@ data FrontendType
       -- ^ @--interactive@.
   | FrontEndBuildLibrary
       -- ^ @--build-library@.
+  | FrontEndPrintASTJson
+      -- ^ @--print-ast-json@.
 
 data InteractionFormat
   = InteractionEmacs
@@ -195,7 +200,7 @@ pattern FrontEndEmacs = FrontEndInteraction InteractionEmacs
 pattern FrontEndJson :: FrontendType
 pattern FrontEndJson  = FrontEndInteraction InteractionJson
 
-{-# COMPLETE FrontEndBuildLibrary, FrontEndEmacs, FrontEndJson, FrontEndRepl #-}
+{-# COMPLETE FrontEndBuildLibrary, FrontEndEmacs, FrontEndJson, FrontEndRepl, FrontEndPrintASTJson #-}
 
 buildLibraryInteractor :: Interactor ()
 buildLibraryInteractor setup _check = do setup; buildLibrary
@@ -212,6 +217,19 @@ replInteractor = runInteractionLoop
 -- | The interactor to use when there are no frontends or backends specified.
 defaultInteractor :: AbsolutePath -> Interactor ()
 defaultInteractor file setup check = do setup; void $ check file
+
+-- | Type-check a file and print the abstract AST as a single JSON value.
+astJsonInteractor :: AbsolutePath -> Interactor ()
+astJsonInteractor file setup check = do
+  astRef <- liftIO $ newIORef Nothing
+  setup
+  setInteractionOutputCallback $ \case
+    R.Resp_AstMap payload -> liftIO $ writeIORef astRef (Just payload)
+    _                    -> pure ()
+  void $ check file
+  liftIO (readIORef astRef) >>= \case
+    Just payload -> liftIO $ BS.putStrLn =<< jsonifyAstFile file payload
+    Nothing      -> genericError "internal error: no abstract AST was produced"
 
 getInteractor :: MonadError String m => [Backend] -> Maybe AbsolutePath -> CommandLineOptions -> m (Maybe (Interactor ()))
 getInteractor configuredBackends maybeInputFile opts = do
@@ -248,6 +266,13 @@ getInteractor configuredBackends maybeInputFile opts = do
             throwError "--build-library cannot be combined with --no-libraries"
           noInputFile fe
           return $ Just buildLibraryInteractor
+        -- --print-ast-json
+        FrontEndPrintASTJson -> do
+          noBackends fe
+          notJustScopeChecking fe
+          case maybeInputFile of
+            Just inputFile -> return $ Just $ astJsonInteractor inputFile
+            Nothing        -> throwError "--print-ast-json requires an input file"
   where
     -- NOTE: The notion of a backend being "enabled" *just* refers to this top-level interaction mode selection. The
     -- interaction/interactive front-ends may still invoke available backends even if they are not "enabled".
@@ -258,6 +283,7 @@ getInteractor configuredBackends maybeInputFile opts = do
       , [ FrontEndEmacs | optGHCiInteraction opts ]
       , [ FrontEndJson  | optJSONInteraction opts ]
       , [ FrontEndBuildLibrary | optBuildLibrary opts ]
+      , [ FrontEndPrintASTJson | optPrintASTJson opts ]
       ]
     -- Constructs messages like "(no backend)", "backend ghc", "backends (ghc, ocaml)"
     pluralize w []  = concat ["(no ", w, ")"]
@@ -270,6 +296,7 @@ getInteractor configuredBackends maybeInputFile opts = do
       FrontEndJson -> "interaction-json"
       FrontEndRepl -> "interactive"
       FrontEndBuildLibrary -> "build-library"
+      FrontEndPrintASTJson -> "print-ast-json"
     noBackends fe = unless (null enabledBackends) $
       throwError $ concat ["Cannot mix ", frontendFlagName fe, " with ", enabledBackendNames]
     noInputFile fe = whenJust maybeInputFile \ inputFile -> errorFrontendFileDisallowed inputFile fe

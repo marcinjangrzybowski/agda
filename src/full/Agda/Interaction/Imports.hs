@@ -1106,6 +1106,19 @@ createInterface mname sf@(SourceFile sfi) isMain msrc = do
     localTC (\ e -> e { envCurrentPath = Just sfi }) do
 
     let onlyScope = isMain == MainInterface ScopeCheck
+        wantsAstMapOutput = do
+          opts <- commandLineOptions
+          pure $ or
+            [ optGHCiInteraction opts
+            , optJSONInteraction opts
+            , optPrintASTJson opts
+            ]
+        wantsAddedArgsOutput = do
+          opts <- commandLineOptions
+          pure $ or
+            [ optGHCiInteraction opts
+            , optJSONInteraction opts
+            ]
 
     reportSLn "import.iface.create" 5 $
       "Creating interface for " ++ prettyShow mname ++ "..."
@@ -1152,10 +1165,10 @@ createInterface mname sf@(SourceFile sfi) isMain msrc = do
         scope = topLevelScope topLevel
 
 
-    ifTopLevel $ do
-       let astPld = buildAstMapFromExprLike OpaqueWrappers R.AstLineCol ds
-       appInteractionOutputCallback $
-          R.Resp_AstMap astPld
+    ifTopLevel $ whenM wantsAstMapOutput $ do
+      let astPld = buildAstMapFromExprLike OpaqueWrappers R.AstLineCol ds
+      appInteractionOutputCallback $
+        R.Resp_AstMap astPld
 
     -- Highlighting from scope checker.
     reportSLn "import.iface.highlight" 15 $ prettyShow mname ++ ": Starting highlighting from scope."
@@ -1209,7 +1222,7 @@ createInterface mname sf@(SourceFile sfi) isMain msrc = do
     --   throwError e
 
     unfreezeMetas
-    ifTopLevel $ do
+    ifTopLevel $ whenM wantsAddedArgsOutput $ do
        clrs <- useTC (lensPostScopeState . lensClosuresRanges)
        case clrs of
          Nothing -> pure ()

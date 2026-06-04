@@ -1077,6 +1077,9 @@ ghciInteractionFlag o = return $ o { optGHCiInteraction = True }
 jsonInteractionFlag :: Flag CommandLineOptions
 jsonInteractionFlag o = return $ o { optJSONInteraction = True }
 
+printASTJsonFlag :: Flag CommandLineOptions
+printASTJsonFlag o = return $ o { optPrintASTJson = True }
+
 interactionExitFlag :: Flag CommandLineOptions
 interactionExitFlag o = return $ o { optExitOnError = True }
 
@@ -1310,6 +1313,8 @@ mainModeOptions = ("Main modes of operation",)
                     "for use with the Emacs mode"
     , Option []     ["interaction-json"] (NoArg jsonInteractionFlag)
                     "for use with other editors such as Atom"
+    , Option []     ["print-ast-json"] (NoArg printASTJsonFlag)
+                    "type-check a file and print its abstract AST as JSON"
     ]
 
 projectOptions :: (String, [OptDescr (Flag CommandLineOptions)])

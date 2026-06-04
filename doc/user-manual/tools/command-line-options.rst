@@ -142,6 +142,13 @@ General options
      For use with other editors such as Atom (no need to invoke
      yourself).
 
+.. option:: --print-ast-json
+
+     Type-check the input file and print the scope-checked abstract AST
+     as a single JSON value. The output follows a recursive
+     ``{"ast": {"kind": "FileNode", ...}}`` shape with nested ``children``,
+     source lines, columns, and offsets.
+
 .. option:: --interaction-exit-on-error
 
      .. versionadded:: 2.6.3

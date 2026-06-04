@@ -34,6 +34,7 @@ defaultOptions = Options
   , optInteractive           = False
   , optGHCiInteraction       = False
   , optJSONInteraction       = False
+  , optPrintASTJson          = False
   , optExitOnError           = False
   , optCompileDir            = Nothing
   , optGenerateVimFile       = False

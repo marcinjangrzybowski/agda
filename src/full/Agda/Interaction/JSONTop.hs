@@ -1,5 +1,7 @@
 module Agda.Interaction.JSONTop
     ( jsonREPL
+    , jsonifyResponse
+    , jsonifyAstFile
     ) where
 
 import Control.Monad
@@ -9,6 +11,7 @@ import Control.Monad.IO.Class
 
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Text as T
 import qualified Data.Set as Set
 
@@ -53,6 +56,8 @@ import Agda.TypeChecking.Warnings
 import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Syntax.Common.Pretty
          ( Pretty(..), prettyShow )
+import Agda.Utils.FileName
+         ( AbsolutePath, filePath )
 import Agda.Utils.Time
          ( CPUTime(..) )
 
@@ -483,6 +488,84 @@ instance EncodeTCM Response where
 -- | Convert Response to an JSON value for interactive editor frontends.
 jsonifyResponse :: Response -> TCM ByteString
 jsonifyResponse = pure . encode <=< encodeTCM
+
+-- | Convert an abstract AST map to the command-line JSON shape.
+--
+-- This intentionally differs from 'Resp_AstMap': editor frontends keep the
+-- compact ID map, while @--print-ast-json@ prints a recursive FileNode object
+-- similar to AST dumps produced by other theorem prover tooling.
+jsonifyAstFile :: AbsolutePath -> AstMapPayload -> IO ByteString
+jsonifyAstFile file payload = do
+  contents <- readFile (filePath file)
+  pure . encode $ object
+    [ "ast" .= astFileNode contents file payload
+    ]
+
+astFileNode :: String -> AbsolutePath -> AstMapPayload -> Value
+astFileNode contents file AstMapPayload{..} = object
+  [ "kind"      .= String "FileNode"
+  , "value"     .= filePath file
+  , "num_lines" .= sourceLineCount contents
+  , "children"  .= map astNodeToValue astTopLevel
+  ]
+  where
+    nodeById = IntMap.fromList
+      [ (fromIntegral astNodeId, node)
+      | node@AstNode{..} <- astNodes
+      ]
+
+    sourceMap = sourcePositionMap contents
+
+    astNodeToValue nodeId =
+      case IntMap.lookup (fromIntegral nodeId) nodeById of
+        Nothing -> object
+          [ "kind"  .= String "MissingNode"
+          , "value" .= nodeId
+          ]
+        Just AstNode{..} ->
+          let start        = sourcePositionAt sourceMap astNodeBeg
+              endInclusive
+                | astNodeEnd <= astNodeBeg = astNodeBeg
+                | otherwise                = astNodeEnd - 1
+              end          = sourcePositionAt sourceMap endInclusive
+              base =
+                [ "kind"         .= astNodeKind
+                , "line"         .= sourceLine start
+                , "start_line"   .= sourceLine start
+                , "start_col"    .= sourceColumn start
+                , "end_line"     .= sourceLine end
+                , "end_col"      .= sourceColumn end
+                , "start_offset" .= astNodeBeg
+                , "end_offset"   .= astNodeEnd
+                ]
+              children =
+                [ "children" .= map astNodeToValue astNodeChildren
+                | not (null astNodeChildren)
+                ]
+          in object (base ++ children)
+
+data SourcePosition = SourcePosition
+  { sourceLine   :: !Int
+  , sourceColumn :: !Int
+  }
+
+sourceLineCount :: String -> Int
+sourceLineCount [] = 0
+sourceLineCount contents = length (lines contents)
+
+sourcePositionMap :: String -> IntMap.IntMap SourcePosition
+sourcePositionMap contents = IntMap.fromList $ go 1 1 1 contents
+  where
+    go offset line column = \case
+      []       -> [(offset, SourcePosition line column)]
+      '\n':cs  -> (offset, SourcePosition line column) : go (offset + 1) (line + 1) 1 cs
+      _   :cs  -> (offset, SourcePosition line column) : go (offset + 1) line (column + 1) cs
+
+sourcePositionAt :: IntMap.IntMap SourcePosition -> AstNodeId -> SourcePosition
+sourcePositionAt sourceMap offset =
+  case IntMap.lookupLE (fromIntegral offset) sourceMap of
+    Just (_, position) -> position
+    Nothing           -> SourcePosition 1 1
 
 -- AST positions tag
 instance EncodeTCM AstPositions where

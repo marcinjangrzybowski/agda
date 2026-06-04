@@ -79,6 +79,8 @@ data CommandLineOptions = Options
       -- ^ @--interaction@ mode.
   , optJSONInteraction       :: Bool
       -- ^ @--interaction-json@ mode.
+  , optPrintASTJson          :: Bool
+      -- ^ @--print-ast-json@ mode.
   , optExitOnError           :: !Bool
       -- ^ Exit if an interactive command fails.
   , optCompileDir            :: Maybe FilePath

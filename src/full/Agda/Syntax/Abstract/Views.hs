@@ -4,6 +4,7 @@ module Agda.Syntax.Abstract.Views where
 import Prelude hiding (null)
 
 import Control.Applicative ( Const(Const), getConst )
+import Control.Monad ( when )
 import Control.Monad.Identity
 import Control.Monad.State.Strict (State, evalState, get, modify')
 
