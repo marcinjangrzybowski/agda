@@ -703,7 +703,10 @@ checkClauseLHS t withSub c@(A.Clause lhs@(A.SpineLHS i x aps) strippedPats _rhs0
       unless (null strippedPats) $ reportSDoc "tc.lhs.top" 50 $
         "strippedPats:" <+> vcat [ prettyA p <+> "=" <+> prettyTCM v <+> ":" <+> prettyTCM a | A.ProblemEq p v a <- strippedPats ]
       closed_t <- flip abstract t <$> getContextTelescope
-      checkLeftHandSide (CheckLHS lhs) (getRange lhs) (ClauseLHS x) aps t withSub strippedPats ret
+      phase <- viewTC eElaborationReduction
+      withoutElaborationReduction $
+        checkLeftHandSide (CheckLHS lhs) (getRange lhs) (ClauseLHS x) aps t withSub strippedPats $
+          \ result -> locallyTC eElaborationReduction (const phase) $ ret result
 
 -- | Type check a function clause.
 
@@ -773,7 +776,7 @@ checkClause t withSubAndLets c@(A.Clause lhs@(A.SpineLHS i x aps) strippedPats r
               [ "double checking rhs"
               , nest 2 (prettyTCM v <+> " : " <+> prettyTCM (unArg trhs))
               ]
-            noConstraints $ withFrozenMetas $ checkInternal v CmpLeq $ unArg trhs
+            withoutElaborationReduction $ noConstraints $ withFrozenMetas $ checkInternal v CmpLeq $ unArg trhs
           Nothing -> return ()
 
         reportSDoc "tc.lhs.top" 10 $ vcat

@@ -144,7 +144,7 @@ checkDecls ds = do
 -- | Type check a single declaration.
 
 checkDecl :: A.Declaration -> TCM ()
-checkDecl d = setCurrentRange d $ do
+checkDecl d = setCurrentRange d $ withDeclarationReduction d $ do
     reportSDoc "tc.decl" 10 $ "checking declaration"
     debugPrintDecl d
     reportSDoc "tc.decl" 90 $ (text . show) (deepUnscopeDecl d)
@@ -270,10 +270,38 @@ checkDecl d = setCurrentRange d $ do
         DifferentOpaque hs -> __IMPOSSIBLE__
       k1 (k2 cont)
 
+-- | A policy is attached to both the signature and the clauses. Helpers inherit
+-- the enclosing owner, while their own directives further restrict unfolding.
+withDeclarationReduction :: A.Declaration -> TCM a -> TCM a
+withDeclarationReduction d cont = case d of
+  A.Axiom _ i _ _ x _ -> enter i x
+  A.FunDef i x _      -> enter i x
+  _                  -> cont
+  where
+    enter i x
+      | null (Info.defReduction i) = cont
+      | otherwise = do
+          forM_ (concatMap Fold.toList (Info.defReduction i)) $ \ q -> do
+            def <- getConstInfo q
+            case theDef def of
+              _ | isUnfoldingPragmaFunction def -> pure ()
+              AbstractDefn{} -> pure ()
+              _ -> typeError $ NotImplemented
+                "unfolding directives for primitives, projections, or module copies"
+          old <- viewTC eElaborationReduceDefs
+          owner <- fromMaybe x <$> viewTC eDefinitionOwner
+          guardOwner <- fromMaybe owner <$> viewTC eRestrictedMetaOwner
+          let policy = foldl intersectReduceDefs (fromMaybe reduceAllDefs old)
+                     $ map reductionPragmaDefs (Info.defReduction i)
+          localTC (set eElaborationReduceDefs (Just policy)
+                 . over eElaborationReduction (\ p -> if p == ElaborationDisabled then p else ElaborationInactive)
+                 . set eDefinitionOwner (Just owner)
+                 . set eRestrictedMetaOwner (Just guardOwner)) cont
+
 -- Some checks that should be run at the end of a mutual block. The
 -- set names contains the names defined in the mutual block.
 mutualChecks :: Info.MutualInfo -> A.Declaration -> MutualId -> Set QName -> TCM ()
-mutualChecks mi d mid names = do
+mutualChecks mi d mid names = withoutElaborationReduction $ do
   -- Andreas, 2014-04-11: instantiate metas in definition types
   let nameList = Set.toList names
   mapM_ instantiateDefinitionType nameList

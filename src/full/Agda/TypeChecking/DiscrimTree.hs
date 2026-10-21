@@ -115,7 +115,7 @@ tickExplore tm = whenProfile Profile.Instances do
 --
 -- Presently, non-head-normal terms end up with an empty argument list.
 splitTermKey :: Bool -> Int -> Term -> TCM (Key, [Term], Blocker)
-splitTermKey precise local tm = catchPatternErr (\b -> pure (FlexK, [], b)) do
+splitTermKey precise local tm = withoutElaborationReduction $ catchPatternErr (\b -> pure (FlexK, [], b)) do
   (b, tm') <- ifBlocked tm (\b _ -> patternViolation b) (\b -> fmap (b,) . constructorForm)
 
   case tm' of

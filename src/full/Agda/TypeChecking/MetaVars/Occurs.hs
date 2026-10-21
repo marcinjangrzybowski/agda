@@ -289,6 +289,7 @@ metaCheck m = do
 
     reportSDoc "tc.meta.occurs" 20 $ "Promoting meta" <+> prettyTCM m <+> "to modality" <+> prettyTCM mmod'
     -- The meta gets updated here
+    checkMetaOwner m
     updateMetaVar m $ \ mv -> mv { mvInfo = setModality mmod' $ mvInfo mv }
     etaExpandListeners m
     wakeupConstraints m
@@ -1064,7 +1065,8 @@ killArgs kills _
 killArgs kills m = do
   mv <- lookupLocalMeta m
   allowAssign <- viewTC eAssignMetas
-  if mvFrozen mv == Frozen || not allowAssign then return PrunedNothing else do
+  owned <- mayRefineMeta m
+  if mvFrozen mv == Frozen || not allowAssign || not owned then return PrunedNothing else do
       -- Andreas 2011-04-26, we allow pruning in MetaV and MetaS
       let a = jMetaType $ mvJudgement mv
       TelV tel b <- telView' <$> instantiateFull a

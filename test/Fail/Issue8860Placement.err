@@ -1,0 +1,2 @@
+Issue8860Placement.agda:5.1-20: error: [Syntax.InvalidReductionPragma]
+ONLY_UNFOLD and DONT_UNFOLD must precede a function type signature.

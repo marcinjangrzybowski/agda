@@ -169,6 +169,8 @@ import Agda.Utils.Impossible
     'INJECTIVE_FOR_INFERENCE' { TokKeyword KwINJECTIVE_FOR_INFERENCE $$ }
     'INLINE'                  { TokKeyword KwINLINE $$ }
     'NOINLINE'                { TokKeyword KwNOINLINE $$ }
+    'ONLY_UNFOLD'             { TokKeyword KwONLY_UNFOLD $$ }
+    'DONT_UNFOLD'             { TokKeyword KwDONT_UNFOLD $$ }
     'MEASURE'                 { TokKeyword KwMEASURE $$ }
     'NO_TERMINATION_CHECK'    { TokKeyword KwNO_TERMINATION_CHECK $$ }
     'NO_POSITIVITY_CHECK'     { TokKeyword KwNO_POSITIVITY_CHECK $$ }
@@ -324,6 +326,8 @@ Token
     | 'INLINE'                  { TokKeyword KwINLINE $1 }
     | 'MEASURE'                 { TokKeyword KwMEASURE $1 }
     | 'NOINLINE'                { TokKeyword KwNOINLINE $1 }
+    | 'ONLY_UNFOLD'             { TokKeyword KwONLY_UNFOLD $1 }
+    | 'DONT_UNFOLD'             { TokKeyword KwDONT_UNFOLD $1 }
     | 'NO_POSITIVITY_CHECK'     { TokKeyword KwNO_POSITIVITY_CHECK $1 }
     | 'NO_TERMINATION_CHECK'    { TokKeyword KwNO_TERMINATION_CHECK $1 }
     | 'NO_UNIVERSE_CHECK'       { TokKeyword KwNO_UNIVERSE_CHECK $1 }
@@ -1593,6 +1597,7 @@ DeclarationPragma
   | InjectiveForInferencePragma { $1 }
   | InlinePragma             { $1 }
   | NoInlinePragma           { $1 }
+  | ReductionPragma          { $1 }
   | ImpossiblePragma         { $1 }
   | TerminatingPragma        { $1 }
   | NonTerminatingPragma     { $1 }
@@ -1654,6 +1659,13 @@ InlinePragma :: { Pragma }
 InlinePragma
   : '{-#' 'INLINE' PragmaQName '#-}'
     { InlinePragma (getRange ($1,$2,$3,$4)) True $3 }
+
+ReductionPragma :: { Pragma }
+ReductionPragma
+  : '{-#' 'ONLY_UNFOLD' PragmaQNames '#-}'
+    { ReductionPragma (getRange ($1,$2,$3,$4)) (OnlyUnfold $3) }
+  | '{-#' 'DONT_UNFOLD' PragmaQNames '#-}'
+    { ReductionPragma (getRange ($1,$2,$3,$4)) (DontUnfold $3) }
 
 NoInlinePragma :: { Pragma }
 NoInlinePragma

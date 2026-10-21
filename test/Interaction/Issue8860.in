@@ -1,0 +1,14 @@
+top_command (cmd_load currentFile [])
+
+-- Resuming a hole keeps its source policy: refl must fail.
+goal_command 0 cmd_give "refl"
+
+-- A previously checked proof is accepted; the hole belongs to this owner.
+goal_command 0 cmd_give "proof"
+goal_command 1 cmd_give "zero"
+
+-- Repeat after loading with the declaration cache populated.
+top_command (cmd_load currentFile [])
+goal_command 0 cmd_give "refl"
+goal_command 0 cmd_give "proof"
+goal_command 1 cmd_give "zero"

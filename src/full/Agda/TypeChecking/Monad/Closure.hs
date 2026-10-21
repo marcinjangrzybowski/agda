@@ -13,10 +13,20 @@ enterClosure :: (MonadTCEnv m, ReadTCState m, LensClosure c a)
              => c -> (a -> m b) -> m b
 enterClosure c k | Closure _sig env scope cps x <- c ^. lensClosure = do
   isDbg <- viewTC eIsDebugPrinting
+  owner <- viewTC eRestrictedMetaOwner
+  phase <- viewTC eElaborationReduction
+  policy <- viewTC eElaborationReduceDefs
+  let combine Nothing p = p
+      combine p Nothing = p
+      combine (Just p) (Just q) = Just (intersectReduceDefs p q)
   evalWithScope scope
       -- TODO: use the signature here? would that fix parts of issue #118?
     $ locallyTCState stModuleCheckpoints (const cps)
-    $ withEnv (env & eIsDebugPrinting .~ isDbg)
+    $ withEnv (env & eIsDebugPrinting .~ isDbg
+                   & eRestrictedMetaOwner %~ maybe id (const . Just) owner
+                   & eElaborationReduceDefs %~ combine policy
+                   & eElaborationReduction %~ \ p ->
+                       if phase == ElaborationDisabled then ElaborationDisabled else p)
     $ k x
 
 {-# INLINE withClosure  #-}

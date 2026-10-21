@@ -1,0 +1,7 @@
+Issue8860Allow.agda:11.11-15: error: [UnequalTerms]
+The terms
+  f 0
+and
+  3
+are not equal at type Nat
+when checking that the expression refl has type f 0 ≡ 3

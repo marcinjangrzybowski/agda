@@ -74,7 +74,7 @@ instance MonadMetaSolver TCM where
   newMeta' inst frozen mi p perm j = ifImpureConv (newMetaTCM' inst frozen mi p perm j) $
     patternViolation alwaysUnblock -- TODO: does this happen?
 
-  assignV dir x args v t = ifImpureConv (assignWrapper dir x (map' Apply args) v $ assign dir x args v t) $ do
+  assignV dir x args v t = ifImpureConv (checkMetaOwner x >> assignWrapper dir x (map' Apply args) v (assign dir x args v t)) $ do
     bv <- isBlocked v
     let blocker = caseMaybe bv id unblockOnEither $ unblockOnMeta x
     patternViolation blocker
@@ -158,6 +158,7 @@ assignTerm x tel v = do
 -- | Skip frozen check.  Used for eta expanding frozen metas.
 assignTermTCM' :: MetaId -> [Arg ArgName] -> Term -> TCM ()
 assignTermTCM' x tel v = do
+    checkMetaOwner x
     let dummyFromArg (Arg i n) = defaultNamedArgDom i n __DUMMY_TYPE__
 
     reportSDoc "tc.meta.assign" 70 $ vcat
@@ -673,7 +674,7 @@ problemType (DisambiguateConstructor (ConstructorDisambiguationData _ _ _ t) _) 
 --   Don't do anything if the meta-variable is a blocked term.
 etaExpandMetaTCM :: [MetaClass] -> MetaId -> TCM ()
 etaExpandMetaTCM kinds m =
- whenM ((not <$> isFrozen m) `and2M` viewTC eAssignMetas `and2M` isEtaExpandable kinds m) $ do
+ whenM (mayRefineMeta m `and2M` (not <$> isFrozen m) `and2M` viewTC eAssignMetas `and2M` isEtaExpandable kinds m) $ do
   verboseBracket "tc.meta.eta" 20 ("etaExpandMeta " ++! prettyShow m) $ do
     let waitFor b = do
           reportSDoc "tc.meta.eta" 20 $ do
@@ -832,6 +833,7 @@ rewConstrained tel = localRewritingOption >>= \case
 
 assign :: CompareDirection -> MetaId -> Args -> Term -> CompareAs -> TCM ()
 assign dir x args v target = addOrUnblocker (unblockOnMeta x) $ do
+  checkMetaOwner x
 
   mvar <- lookupLocalMeta x  -- information associated with meta x
   let t = jMetaType $ mvJudgement mvar
@@ -2006,6 +2008,7 @@ openMetasToPostulates = do
     -- Solve the meta.
     let inst = InstV $ Instantiation
                  { instTel = [], instBody = Def q [] }
+    checkMetaOwner x
     updateMetaVar x $ \ mv0 -> mv0 { mvInstantiation = inst }
     return ()
   where

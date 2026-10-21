@@ -1,0 +1,5 @@
+Issue8860Projection.agda:5.17-20: error: [NotImplemented]
+Not implemented: unfolding directives for names other than ordinary
+functions
+when scope checking the declaration
+  bad : Nat

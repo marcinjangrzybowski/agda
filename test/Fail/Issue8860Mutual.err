@@ -1,0 +1,6 @@
+Issue8860Mutual.agda:4.1-7.10: error: [NotImplemented]
+Not implemented: unfolding directives in explicit mutual blocks
+when scope checking the declaration
+  mutual
+    bad : Nat
+    bad = 0

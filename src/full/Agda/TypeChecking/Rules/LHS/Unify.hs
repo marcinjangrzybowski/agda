@@ -229,7 +229,7 @@ unifyIndices'
   -> Args          -- ^ @us@
   -> Args          -- ^ @vs@
   -> TCM FullUnificationResult
-unifyIndices' linv tel flex a us vs = Bench.billTo [Bench.UnifyIndices] $ case (us, vs) of
+unifyIndices' linv tel flex a us vs = withoutElaborationReduction $ Bench.billTo [Bench.UnifyIndices] $ case (us, vs) of
   ([], []) -> pure $ Unifies (tel, idS, [], pure $ Right (idS, raiseS 1))
   _        -> do
     reportSDoc "tc.lhs.unify" 10 $

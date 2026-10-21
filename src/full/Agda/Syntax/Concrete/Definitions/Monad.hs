@@ -77,6 +77,10 @@ data NiceState = NiceState
     -- ^ Catchall pragma waiting for a function clause.
   , _covChk  :: CoverageCheck
     -- ^ Coverage pragma waiting for a definition.
+  , _reductionPragmas :: [ReductionPragma QName]
+    -- ^ Unfolding directives attached to the next function signature.
+  , _functionReductionPragmas :: Map Name [ReductionPragma QName]
+    -- ^ Directives to copy from signatures to their clauses.
   , niceWarn :: NiceWarnings
     -- ^ Stack of warnings. Head is last warning.
   , _nameId  :: NameId
@@ -118,12 +122,20 @@ initNiceState = NiceState
   , _forceEta = empty
   , _catchall = empty
   , _covChk   = YesCoverageCheck
+  , _reductionPragmas = []
+  , _functionReductionPragmas = Map.empty
   , niceWarn  = []
   , _nameId   = NameId 1 noModuleNameHash
   }
 
 lensNameId :: Lens' NiceState NameId
 lensNameId f e = f (_nameId e) <&> \ i -> e { _nameId = i }
+
+reductionPragmas :: Lens' NiceState [ReductionPragma QName]
+reductionPragmas f s = f (_reductionPragmas s) <&> \ p -> s { _reductionPragmas = p }
+
+functionReductionPragmas :: Lens' NiceState (Map Name [ReductionPragma QName])
+functionReductionPragmas f s = f (_functionReductionPragmas s) <&> \ p -> s { _functionReductionPragmas = p }
 
 nextNameId :: Nice NameId
 nextNameId = do

@@ -69,6 +69,17 @@ instance MonadConstraint TCM where
 
 addConstraintTCM :: Blocker -> Constraint -> TCM ()
 addConstraintTCM unblock c = do
+  foreignMeta <- anyM (fmap not . mayRefineMeta) $ Set.toList $ allBlockingMetas unblock
+  if foreignMeta then
+    -- Retain the original obligation, but do not retry it inside the restricted
+    -- declaration. Once that declaration returns, ordinary solving may propagate
+    -- its choices to an older meta (direct containment, not noninterference).
+    localTC (set eDefinitionOwner Nothing . set eRestrictedMetaOwner Nothing) $
+      locallyReduceAllDefs $ addAwakeConstraint' alwaysUnblock c
+  else addLocalConstraintTCM unblock c
+
+addLocalConstraintTCM :: Blocker -> Constraint -> TCM ()
+addLocalConstraintTCM unblock c = do
   pids <- viewTC eActiveProblems
   reportSDoc "tc.constr.add" 20 $ hsep
     [ "adding constraint"
@@ -276,7 +287,9 @@ solveSomeAwakeConstraintsTCM solveThis force = do
         unlessNullM getAwakeConstraints \ cs ->
           reportSDoc "tc.constr.solve" 10 $ hsep
             [ "Solving awake constraints.", text . show $ length cs, "remaining."]
-      whenJustM (takeAwakeConstraint' solveThis) \ c -> do
+      owner <- viewTC eRestrictedMetaOwner
+      let owned c = maybe True (\ q -> Just q == view eDefinitionOwner (clEnv $ theConstraint c)) owner
+      whenJustM (takeAwakeConstraint' (\ c -> solveThis c && owned c)) \ c -> do
         withConstraint solveConstraint c
         solve
 
@@ -337,6 +350,7 @@ solveConstraint_ (HasBiggerSort a)      = hasBiggerSort a
 solveConstraint_ (HasPTSRule a b)       = hasPTSRule a b
 solveConstraint_ (CheckDataSort q s)    = checkDataSort q s
 solveConstraint_ (CheckMetaInst m)      = checkMetaInst m
+solveConstraint_ (ExpandMeta m)        = wakeupListener (EtaExpand m)
 solveConstraint_ (CheckType t)          = checkType t
 solveConstraint_ (UsableAtModality cc ms mod t) = usableAtModality' ms cc mod t
 solveConstraint_ (RewConstraint eq)     = checkRewConstraint eq

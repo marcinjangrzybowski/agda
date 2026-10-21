@@ -319,6 +319,7 @@ instance Instantiate Constraint where
   instantiate' (UnquoteTactic t h g) = UnquoteTactic <$> instantiate' t <*> instantiate' h <*> instantiate' g
   instantiate' (CheckDataSort q s)  = CheckDataSort q <$> instantiate' s
   instantiate' c@CheckMetaInst{}    = return c
+  instantiate' c@ExpandMeta{}       = return c
   instantiate' (CheckType t)        = CheckType <$> instantiate' t
   instantiate' (UsableAtModality cc ms mod t) = flip (UsableAtModality cc) mod <$> instantiate' ms <*> instantiate' t
   instantiate' (RewConstraint e)    = RewConstraint <$> instantiate' e
@@ -727,7 +728,7 @@ unfoldDefinitionStep v0 f es =
   rewr    <- getAllRewriteRulesForDefHead f
   allowed <- viewTC eAllowedReductions
   prp     <- runBlocked $ isPropM $ defType info
-  defOk   <- shouldReduceDef f
+  defOk   <- shouldReduceDefinition info
   let def = theDef info
       v   = v0 `applyE` es
       -- Non-terminating functions
@@ -1114,6 +1115,7 @@ instance Reduce Constraint where
     CheckLockedVars <$> reduce' a <*> reduce' b <*> reduce' c <*> reduce' d
   reduce' (CheckDataSort q s)   = CheckDataSort q <$> reduce' s
   reduce' c@CheckMetaInst{}     = return c
+  reduce' c@ExpandMeta{}        = return c
   reduce' (CheckType t)         = CheckType <$> reduce' t
   reduce' (UsableAtModality cc ms mod t) = flip (UsableAtModality cc) mod <$> reduce' ms <*> reduce' t
   reduce' (RewConstraint e)     = RewConstraint <$> reduce' e
@@ -1288,6 +1290,7 @@ instance Simplify Constraint where
     CheckLockedVars <$> simplify' a <*> simplify' b <*> simplify' c <*> simplify' d
   simplify' (CheckDataSort q s)   = CheckDataSort q <$> simplify' s
   simplify' c@CheckMetaInst{}     = return c
+  simplify' c@ExpandMeta{}        = return c
   simplify' (CheckType t)         = CheckType <$> simplify' t
   simplify' (UsableAtModality cc ms mod t) = flip (UsableAtModality cc) mod <$> simplify' ms <*> simplify' t
   simplify' (RewConstraint e)     = RewConstraint <$> simplify' e
@@ -1482,6 +1485,7 @@ instance Normalise Constraint where
     CheckLockedVars <$> normalise' a <*> normalise' b <*> normalise' c <*> normalise' d
   normalise' (CheckDataSort q s)   = CheckDataSort q <$> normalise' s
   normalise' c@CheckMetaInst{}     = return c
+  normalise' c@ExpandMeta{}        = return c
   normalise' (CheckType t)         = CheckType <$> normalise' t
   normalise' (UsableAtModality cc ms mod t) = flip (UsableAtModality cc) mod <$> normalise' ms <*> normalise' t
   normalise' (RewConstraint e)     = RewConstraint <$> normalise' e
@@ -1759,6 +1763,7 @@ instance InstantiateFull Constraint where
       CheckLockedVars <$!> instantiateFull' a <*!> instantiateFull' b <*!> instantiateFull' c <*!> instantiateFull' d
     CheckDataSort q s   -> CheckDataSort q <$!> instantiateFull' s
     c@CheckMetaInst{}   -> return c
+    c@ExpandMeta{}      -> return c
     CheckType t         -> CheckType <$!> instantiateFull' t
     UsableAtModality cc ms mod t -> flip (UsableAtModality cc) mod <$!> instantiateFull' ms <*!> instantiateFull' t
     RewConstraint e     -> RewConstraint <$!> instantiateFull' e

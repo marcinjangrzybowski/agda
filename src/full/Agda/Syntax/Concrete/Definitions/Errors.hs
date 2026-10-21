@@ -54,6 +54,7 @@ data DeclarationException'
   | InvalidMeasureMutual Range
       -- ^ In a mutual block, all or none need a MEASURE pragma.
       --   'Range' is the one of the offending pragma or the mutual block.
+  | InvalidReductionPragma Range
   | UnquoteDefRequiresSignature (List1 Name)
   | BadMacroDef NiceDeclaration
   | UnfoldingOutsideOpaque KwRange
@@ -81,6 +82,7 @@ declarationExceptionString = \case
   AmbiguousFunClauses         {} -> "AmbiguousFunClauses"
   AmbiguousConstructor        {} -> "AmbiguousConstructor"
   InvalidMeasureMutual        {} -> "InvalidMeasureMutual"
+  InvalidReductionPragma      {} -> "InvalidReductionPragma"
   UnquoteDefRequiresSignature {} -> "UnquoteDefRequiresSignature"
   BadMacroDef                 {} -> "BadMacroDef"
   UnfoldingOutsideOpaque      {} -> "UnfoldingOutsideOpaque"
@@ -323,6 +325,7 @@ unsafePragma p =
     ImpossiblePragma{}         -> empty
     InjectivePragma{}          -> singleton $ SafeFlagInjective r
     InjectiveForInferencePragma{} -> empty
+    ReductionPragma{}             -> empty
     InlinePragma{}             -> empty
     NoCoverageCheckPragma{}    -> singleton $ SafeFlagNoCoverageCheck r
     NoPositivityCheckPragma{}  -> singleton $ SafeFlagNoPositivityCheck r
@@ -356,6 +359,7 @@ instance HasRange DeclarationException where
   getRange (DeclarationException _ err) = getRange err
 
 instance HasRange DeclarationException' where
+  getRange (InvalidReductionPragma r) = r
   getRange (MultipleEllipses d)                 = getRange d
   getRange (DuplicateDefinition x _)            = getRange x
   getRange (DuplicateAnonDeclaration r _)       = r
@@ -428,6 +432,8 @@ instance HasRange DeclarationWarning' where
 -- These error messages can (should) be terminated by a dot ".",
 -- there is no error context printed after them.
 instance Pretty DeclarationException' where
+  pretty (InvalidReductionPragma _) = text
+    "ONLY_UNFOLD and DONT_UNFOLD must precede a function type signature."
   pretty (MultipleEllipses p) = fsep $
     pwords "Multiple ellipses in left-hand side" ++ [pretty p]
   pretty (DuplicateDefinition x y) = fsep $

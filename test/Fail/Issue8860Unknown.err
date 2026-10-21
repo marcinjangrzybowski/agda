@@ -1,0 +1,6 @@
+Issue8860Unknown.agda:4.17-24: error: [NotInScope]
+Not in scope:
+  missing
+  at Issue8860Unknown.agda:4.17-24
+when scope checking the declaration
+  bad : Nat

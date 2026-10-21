@@ -170,6 +170,7 @@ instance PrettyTCM Constraint where
           case mvJudgement m of
             HasType{ jMetaType = t } -> prettyTCM x <+> ":" <+> prettyTCM t
             IsSort{} -> prettyTCM x <+> "is a sort"
+        ExpandMeta x -> "Eta-expand" <+> prettyTCM x
         CheckType t ->
           prettyTCM t <+> "is a well-formed type"
         CheckLockedVars t ty lk lk_ty -> do

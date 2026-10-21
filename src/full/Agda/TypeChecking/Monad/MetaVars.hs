@@ -189,6 +189,18 @@ metasCreatedBy m = do
       (_, Nothing, ms) -> ms
       (_, Just m,  ms) -> MapS.insert next m ms
 
+-- | May the active declaration refine this meta? Creation closures preserve
+-- ownership when pruning produces a fresh representative of an older meta.
+mayRefineMeta :: (MonadTCEnv m, ReadTCState m) => MetaId -> m Bool
+mayRefineMeta m = viewTC eRestrictedMetaOwner >>= \case
+  Nothing -> pure True
+  Just owner -> do
+    mv <- lookupLocalMeta' m
+    pure $ maybe False ((== Just owner) . view eDefinitionOwner . getMetaEnv) mv
+
+checkMetaOwner :: MonadMetaSolver m => MetaId -> m ()
+checkMetaOwner m = unlessM (mayRefineMeta m) $ patternViolation (unblockOnMeta m)
+
 -- | Find information about the given local meta-variable, if any.
 {-# SPECIALIZE lookupLocalMeta' :: MetaId -> TCM (Maybe MetaVariable) #-}
 lookupLocalMeta' :: ReadTCState m => MetaId -> m (Maybe MetaVariable)
@@ -449,6 +461,7 @@ constraintMetas = \case
       HasPTSRule{}             -> return mempty
       CheckDataSort{}          -> return mempty
       CheckMetaInst x          -> return mempty
+      ExpandMeta x             -> return mempty
       CheckType t              -> gatherMetas t
       CheckLockedVars a b c d  -> gatherMetas (a, b, c, d)
       UsableAtModality{}       -> return mempty
@@ -829,7 +842,10 @@ etaExpandListeners m = do
 -- | Wake up a meta listener and let it do its thing
 wakeupListener :: MonadMetaSolver m => Listener -> m ()
   -- Andreas 2010-10-15: do not expand record mvars, lazyness needed for irrelevance
-wakeupListener (EtaExpand x)         = etaExpandMetaSafe x
+wakeupListener (EtaExpand x)         =
+  ifM (mayRefineMeta x) (etaExpandMetaSafe x) $
+    localTC (set eDefinitionOwner Nothing . set eRestrictedMetaOwner Nothing) $
+      locallyReduceAllDefs $ addAwakeConstraint alwaysUnblock (ExpandMeta x)
 wakeupListener (CheckConstraint _ c) = do
   --reportSDoc "tc.meta.blocked" 20 $ "waking boxed constraint" <+> prettyTCM c
   modifyAwakeConstraints (c:)

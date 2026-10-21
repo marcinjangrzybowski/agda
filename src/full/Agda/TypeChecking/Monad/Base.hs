@@ -1698,6 +1698,8 @@ data Constraint
     -- E.g., sorts @IUniv@, @SizeUniv@ etc. do not admit such constructions.
     -- See 'Agda.TypeChecking.Rules.Data.checkDataSort'.
   | CheckMetaInst MetaId
+  | ExpandMeta MetaId
+    -- ^ Retry a safe eta-expansion after leaving a foreign meta owner's scope.
   | CheckType Type
   | UnBlock MetaId
     -- ^ Meta created for a term blocked by a postponed type checking problem or unsolved
@@ -1742,6 +1744,7 @@ instance HasRange Constraint where
   getRange HasPTSRule{}          = noRange
   getRange CheckDataSort{}       = noRange
   getRange CheckMetaInst{}       = noRange
+  getRange ExpandMeta{}          = noRange
   getRange CheckType{}           = noRange
   getRange CheckSizeLtSat{}      = noRange
   getRange CheckFunDef{}         = noRange
@@ -1770,6 +1773,7 @@ instance Free Constraint where
     UnquoteTactic t h g         -> ret $ freeVars (t, h, g)
     CheckDataSort _ s           -> ret $ freeVars s
     CheckMetaInst m             -> ret $ mempty
+    ExpandMeta m               -> ret $ mempty
     CheckType t                 -> ret $ freeVars t
     UsableAtModality _ ms mod t -> ret $ freeVars (ms, t)
     RewConstraint e             -> ret $ freeVars e
@@ -1801,6 +1805,7 @@ instance TermLike Constraint where
       HasPTSRule a s         -> foldTerm f (a, Sort <$> s)
       CheckDataSort _ s      -> foldTerm f s
       CheckMetaInst m        -> mempty
+      ExpandMeta m           -> mempty
       CheckType t            -> foldTerm f t
       UsableAtModality _ ms m t   -> foldTerm f (Sort <$> ms, t)
       RewConstraint e        -> foldTerm f e
@@ -3786,7 +3791,7 @@ reallyAllReductions = SmallSet.total
 data ReduceDefs
   = OnlyReduceDefs (Set QName)
   | DontReduceDefs (Set QName)
-  deriving Generic
+  deriving (Eq, Show, Generic)
 
 reduceAllDefs :: ReduceDefs
 reduceAllDefs = DontReduceDefs empty
@@ -3795,13 +3800,58 @@ locallyReduceDefs :: MonadTCEnv m => ReduceDefs -> m a -> m a
 locallyReduceDefs = locallyTC eReduceDefs . const
 
 locallyReduceAllDefs :: MonadTCEnv m => m a -> m a
-locallyReduceAllDefs = locallyReduceDefs reduceAllDefs
+locallyReduceAllDefs = withoutElaborationReduction . locallyReduceDefs reduceAllDefs
+
+-- | Intersect permissions, including mixed allow/deny lists.
+intersectReduceDefs :: ReduceDefs -> ReduceDefs -> ReduceDefs
+intersectReduceDefs (OnlyReduceDefs a) (OnlyReduceDefs b) = OnlyReduceDefs (Set.intersection a b)
+intersectReduceDefs (OnlyReduceDefs a) (DontReduceDefs b) = OnlyReduceDefs (Set.difference a b)
+intersectReduceDefs (DontReduceDefs a) (OnlyReduceDefs b) = OnlyReduceDefs (Set.difference b a)
+intersectReduceDefs (DontReduceDefs a) (DontReduceDefs b) = DontReduceDefs (Set.union a b)
+
+reductionPragmaDefs :: ReductionPragma QName -> ReduceDefs
+reductionPragmaDefs (OnlyUnfold ns) = OnlyReduceDefs (Set.fromList ns)
+reductionPragmaDefs (DontUnfold ns) = DontReduceDefs (Set.fromList ns)
+
+data ElaborationReduction = ElaborationInactive | ElaborationActive | ElaborationDisabled
+  deriving (Eq, Show, Generic)
+
+-- | Use the lexical policy in conversion and explicit object-term reduction.
+withElaborationReduction :: MonadTCEnv m => m a -> m a
+withElaborationReduction = locallyTC eElaborationReduction $ \case
+  ElaborationDisabled -> ElaborationDisabled
+  _ -> ElaborationActive
+
+-- | Structural checking and meta-language execution retain ordinary reduction.
+-- This does not remove the restriction on which metas may be refined.
+withoutElaborationReduction :: MonadTCEnv m => m a -> m a
+withoutElaborationReduction = locallyTC eElaborationReduction (const ElaborationDisabled)
 
 {-# INLINE shouldReduceDef #-}
 shouldReduceDef :: (MonadTCEnv m) => QName -> m Bool
-shouldReduceDef f = viewTC eReduceDefs <&> \case
+shouldReduceDef f = allowsReduction f <$> viewTC eReduceDefs
+
+allowsReduction :: QName -> ReduceDefs -> Bool
+allowsReduction f = \case
   OnlyReduceDefs defs -> f `Set.member` defs
   DontReduceDefs defs -> not $ f `Set.member` defs
+
+-- | The declaration policy controls ordinary functions. Primitives, proper
+-- projections and module-copy indirections retain their existing semantics.
+shouldReduceDefinition :: MonadTCEnv m => Definition -> m Bool
+shouldReduceDefinition def = do
+  reflected <- shouldReduceDef (defName def)
+  active <- viewTC eElaborationReduction
+  policy <- viewTC eElaborationReduceDefs
+  pure $ reflected &&
+    (active /= ElaborationActive || not (isUnfoldingPragmaFunction def) ||
+     maybe True (allowsReduction (defName def)) policy)
+
+isUnfoldingPragmaFunction :: Definition -> Bool
+isUnfoldingPragmaFunction def = not (defCopy def) && case theDef def of
+  Function { funProjection = Right Projection{ projProper = Just{} } } -> False
+  Function{} -> True
+  _ -> False
 
 toReduceDefs :: (Bool, [QName]) -> ReduceDefs
 toReduceDefs (True,  ns) = OnlyReduceDefs (Data.Set.fromList ns)
@@ -4391,6 +4441,12 @@ data ColdEnv = ColdEnv {
         -- ^ Did we encounter a simplification (proper match)
         --   during the current reduction process?
   , envReduceDefs :: !ReduceDefs
+  , envElaborationReduceDefs :: !(Maybe ReduceDefs)
+  , envElaborationReduction :: !ElaborationReduction
+  , envDefinitionOwner :: !(Maybe QName)
+    -- ^ Origin of newly created metas; shared by the signature and helpers.
+  , envRestrictedMetaOwner :: !(Maybe QName)
+    -- ^ Active write restriction, preserved when entering foreign closures.
   , envInjectivityDepth :: !Int
         -- ^ Injectivity can cause non-termination for unsolvable contraints
         --   (#431, #3067). Keep a limit on the nesting depth of injectivity
@@ -4618,6 +4674,10 @@ initColdEnv = ColdEnv {
   , envExpandLast             = ExpandLast
   , envSimplification         = NoSimplification
   , envReduceDefs             = reduceAllDefs
+  , envElaborationReduceDefs  = Nothing
+  , envElaborationReduction   = ElaborationInactive
+  , envDefinitionOwner        = Nothing
+  , envRestrictedMetaOwner    = Nothing
   , envInjectivityDepth       = 0
   , envUnquoteFlags           = defaultUnquoteFlags
   , envInstanceDepth          = 0
@@ -4784,6 +4844,22 @@ eAllowedReductions = \f e ->
 eReduceDefs :: Lens' TCEnv ReduceDefs
 eReduceDefs = \f e ->
   f (envReduceDefs $ envColdEnv e) <&> \ x -> e {envColdEnv = (envColdEnv e){ envReduceDefs = x }}
+
+eElaborationReduceDefs :: Lens' TCEnv (Maybe ReduceDefs)
+eElaborationReduceDefs f e =
+  f (envElaborationReduceDefs $ envColdEnv e) <&> \ x -> e {envColdEnv = (envColdEnv e){ envElaborationReduceDefs = x }}
+
+eElaborationReduction :: Lens' TCEnv ElaborationReduction
+eElaborationReduction f e =
+  f (envElaborationReduction $ envColdEnv e) <&> \ x -> e {envColdEnv = (envColdEnv e){ envElaborationReduction = x }}
+
+eDefinitionOwner :: Lens' TCEnv (Maybe QName)
+eDefinitionOwner f e =
+  f (envDefinitionOwner $ envColdEnv e) <&> \ x -> e {envColdEnv = (envColdEnv e){ envDefinitionOwner = x }}
+
+eRestrictedMetaOwner :: Lens' TCEnv (Maybe QName)
+eRestrictedMetaOwner f e =
+  f (envRestrictedMetaOwner $ envColdEnv e) <&> \ x -> e {envColdEnv = (envColdEnv e){ envRestrictedMetaOwner = x }}
 
 {-# INLINE eReduceDefsPair #-}
 eReduceDefsPair :: Lens' TCEnv (Bool, [QName])
@@ -7499,6 +7575,8 @@ instance NFData Defn
 instance NFData Simplification
 instance NFData AllowedReduction
 instance NFData ReduceDefs
+
+instance NFData ElaborationReduction
 instance NFData c => NFData (FunctionInverse' c)
 instance NFData TermHead
 instance NFData Call

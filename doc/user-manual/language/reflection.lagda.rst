@@ -602,6 +602,17 @@ following primitive operations::
   {-# BUILTIN AGDATCMGETINSTANCES               getInstances               #-}
   {-# BUILTIN AGDATCMSOLVEINSTANCES             solveInstanceConstraints   #-}
 
+Declaration unfolding policies
+------------------------------
+
+The :ref:`ONLY_UNFOLD and DONT_UNFOLD pragmas <elaboration-unfolding-pragmas>`
+also govern conversion, ``normalise``, and ``reduce`` requested by a macro
+while elaborating the annotated definition. Their permissions intersect
+with the reflection filter. ``withReduceDefs`` still replaces the current
+reflection filter, and ``askReduceDefs`` reports that filter. Neither
+operation changes the enclosing declaration's policy. Macro execution and
+rechecking of reflected input syntax retain ordinary reduction.
+
 Metaprogramming
 ---------------
 

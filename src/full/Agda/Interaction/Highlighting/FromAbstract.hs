@@ -15,6 +15,7 @@ import Prelude hiding (null)
 import Control.Monad.Reader  ( MonadReader(..), asks, Reader, runReader )
 
 import           Data.Maybe
+import qualified Data.Foldable       as Fold
 import           Data.Void            ( Void )
 
 import           Agda.Interaction.Highlighting.Precise hiding ( singleton )
@@ -26,7 +27,7 @@ import qualified Agda.Syntax.Abstract      as A
 import           Agda.Syntax.Common        as Common
 import           Agda.Syntax.Concrete                ( FieldAssignment'(..), TacticAttribute' )
 import qualified Agda.Syntax.Concrete.Name as C
-import           Agda.Syntax.Info                    ( ModuleInfo(..) )
+import           Agda.Syntax.Info                    ( ModuleInfo(..), defReduction )
 import           Agda.Syntax.Literal
 import qualified Agda.Syntax.Position      as P
 import           Agda.Syntax.Position                ( Range, HasRange, getRange, noRange )
@@ -198,7 +199,7 @@ instance Hilite A.RecordConName where
 
 instance Hilite A.Declaration where
   hilite = \case
-      A.Axiom _ax _di ai _occ x e            -> hl ai <> hl x <> hl e
+      A.Axiom _ax di ai _occ x e             -> hl (concatMap Fold.toList $ defReduction di) <> hl ai <> hl x <> hl e
       A.Generalize _names _di ai x e         -> hl ai <> hl x <> hl e
       A.Field _di x e                        -> hlField x <> hl e
       A.Primitive _di x e                    -> hl x <> hl e

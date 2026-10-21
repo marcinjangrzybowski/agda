@@ -275,6 +275,7 @@ declarationExceptionName = \case
   DuplicateAnonDeclaration         {} -> DuplicateAnonDeclaration_
   DuplicateDefinition              {} -> DuplicateDefinition_
   InvalidMeasureMutual             {} -> InvalidMeasureMutual_
+  InvalidReductionPragma           {} -> InvalidReductionPragma_
   MissingWithClauses               {} -> MissingWithClauses_
   MultipleEllipses                 {} -> MultipleEllipses_
   OpaqueInMutual                   {} -> OpaqueInMutual_

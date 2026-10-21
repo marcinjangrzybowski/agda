@@ -16,6 +16,7 @@ import Control.DeepSeq
 import GHC.Generics (Generic)
 
 import qualified Agda.Syntax.Concrete.Name as C
+import qualified Agda.Syntax.Abstract.Name as A
 import Agda.Syntax.Common
 import Agda.Syntax.Position
 import Agda.Syntax.Concrete
@@ -189,6 +190,7 @@ data DefInfo' t = DefInfo
   , defMacro    :: IsMacro
   , defInfo     :: DeclInfo
   , defTactic   :: TacticAttribute' t
+  , defReduction :: [ReductionPragma A.QName]
   }
   deriving (Show, Eq, Generic)
 
@@ -197,7 +199,7 @@ mkDefInfo x f a ab r = mkDefInfoInstance x f a ab NotInstanceDef NotMacroDef r
 
 -- | Same as @mkDefInfo@ but where we can also give the @IsInstance@
 mkDefInfoInstance :: Name -> Fixity' -> Access -> IsAbstract -> IsInstance -> IsMacro -> Range -> DefInfo' t
-mkDefInfoInstance x f a ab i m r = DefInfo f a ab TransparentDef i m (DeclInfo x r) empty
+mkDefInfoInstance x f a ab i m r = DefInfo f a ab TransparentDef i m (DeclInfo x r) empty []
 
 instance HasRange (DefInfo' t) where
   getRange = getRange . defInfo
@@ -207,7 +209,8 @@ instance SetRange (DefInfo' t) where
 
 instance KillRange (DefInfo' t) where
   killRange i = i { defInfo   = killRange $ defInfo i,
-                    defTactic = killRange $ defTactic i }
+                    defTactic = killRange $ defTactic i,
+                    defReduction = killRange $ defReduction i }
 
 instance LensIsAbstract (DefInfo' t) where
   lensIsAbstract f i = (f $! defAbstract i) <&> \ a -> i { defAbstract = a }

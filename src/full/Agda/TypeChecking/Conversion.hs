@@ -148,7 +148,7 @@ compareTerm !cmp !a !u !v = compareAs cmp (AsTermsOf a) u v
 compareAs :: Comparison -> CompareAs -> Term -> Term -> TCM ()
   -- If one term is a meta, try to instantiate right away. This avoids unnecessary unfolding.
   -- Andreas, 2012-02-14: This is UNSOUND for subtyping!
-compareAs !cmp !a !u !v = do
+compareAs !cmp !a !u !v = withElaborationReduction $ do
   reportSDoc "tc.conv.term" 20 $ sep $
     [ "compareTerm"
     , nest 2 $ prettyTCM u <+> prettyTCM cmp <+> prettyTCM v

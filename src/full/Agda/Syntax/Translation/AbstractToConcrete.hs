@@ -1259,11 +1259,14 @@ instance ToConcrete A.Declaration where
     withAbstractPrivate i $
       withInfixDecl i x'  $ do
       t' <- toConcreteTop t
+      reds <- traverse (traverse toConcrete) (defReduction i)
       return $
+        map (C.Pragma . C.ReductionPragma noRange) reds ++
         (case mp of
            Nothing   -> []
            Just occs -> [C.Pragma (PolarityPragma noRange x' $ List1.toList occs)]) ++
-        [C.Postulate empty [C.TypeSig info empty x' t']]
+        [if null reds then C.Postulate empty [C.TypeSig info empty x' t']
+                      else C.TypeSig info empty x' t']
 
   toConcrete (A.Generalize s i j x t) = do
     x' <- unsafeQNameToName <$> toConcrete x

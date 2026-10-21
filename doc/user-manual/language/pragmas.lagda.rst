@@ -28,6 +28,8 @@ Index of pragmas
 
 * :ref:`DISPLAY <display-pragma>`
 
+* :ref:`DONT_UNFOLD <elaboration-unfolding-pragmas>`
+
 * :ref:`ETA_EQUALITY <eta-pragma>`
 
 * :ref:`FOREIGN <foreign-function-interface>`
@@ -52,6 +54,8 @@ Index of pragmas
 
 * :ref:`OPTIONS <options-pragma>`
 
+* :ref:`ONLY_UNFOLD <elaboration-unfolding-pragmas>`
+
 * :ref:`POLARITY <polarity-pragma>`
 
 * :ref:`REWRITE<rewriting>`
@@ -65,6 +69,78 @@ Index of pragmas
 * :ref:`WARNING_ON_IMPORT <warning-pragma>`
 
 See also :ref:`command-line-pragmas`.
+
+.. _elaboration-unfolding-pragmas:
+
+The ``ONLY_UNFOLD`` and ``DONT_UNFOLD`` pragmas
+_____________________________________________
+
+.. versionadded:: 2.10.0
+
+These pragmas control unfolding of ordinary functions during conversion
+while checking a function's signature and implementation. They do not
+change the transparency of the completed function at its use sites.
+Place a pragma immediately before the function's type signature; other
+attached pragmas may occur between them.
+
+.. code-block:: agda
+
+  {-# DONT_UNFOLD expensive #-}
+  example : Vec A (expensive + expensive) → Vec A (double expensive)
+  example xs = xs
+
+Here ``double n = n + n``. Conversion may unfold ``double`` while leaving
+``expensive`` folded. ``ONLY_UNFOLD double`` instead allows only
+``double`` among ordinary functions. An empty ``ONLY_UNFOLD`` list permits
+no ordinary functions; an empty ``DONT_UNFOLD`` list imposes no restriction.
+Names must already be in scope. Primitive functions, proper record
+projections, and module-copy aliases are not supported as listed targets
+and are not governed by these pragmas. Projection-like ordinary functions
+are supported.
+
+Multiple pragmas and nested ``where`` declarations compose by intersecting
+their permissions. An inner pragma cannot re-enable a function forbidden
+by an outer pragma. Unannotated local declarations, generated with-functions,
+and extended lambdas inherit the enclosing policy.
+
+.. code-block:: agda
+
+  {-# ONLY_UNFOLD f g #-}
+  {-# DONT_UNFOLD g #-}
+  example : T
+  example = helper
+    where
+    {-# ONLY_UNFOLD f g h #-}
+    helper : T
+    helper = body
+
+Both implementations may unfold only ``f`` among ordinary functions.
+Annotations on explicit ``mutual`` blocks and on ``let`` bindings are
+currently unsupported.
+
+The policy also applies to the reflected ``normalise`` and ``reduce``
+operations and to conversion requested by macros. It intersects with the
+reflection reduction filter, so a macro cannot re-enable a function denied
+by the enclosing declaration. Macro execution and rechecking of reflected
+syntax retain ordinary reduction. Nested ``withReduceDefs`` calls keep
+their existing replacement semantics for the reflection filter;
+``askReduceDefs`` reports that filter, not the declaration's policy.
+
+This is an elaboration policy, not an opacity boundary. Type-shape
+inspection, pattern unification, coverage and emptiness checking,
+termination and positivity checks, and internal validation retain ordinary
+reduction. In particular, failure of restricted conversion is never
+evidence that a pattern is impossible. Restricting conversion can make
+otherwise accepted programs fail or change inferred terms.
+
+During restricted checking, Agda may refine only metas created for the
+annotated definition, including its signature and local implementation
+declarations. Pruned replacements retain their original ownership.
+Postponed work and interaction holes retain their policy and owner. An
+obligation involving an older meta is preserved for ordinary solving;
+that later solving may propagate choices made in the annotated definition
+to the older meta. These pragmas introduce no additional requirement on
+the ``--require-unique-meta-solutions`` option.
 
 .. _display-pragma:
 

@@ -568,6 +568,9 @@ instance Pretty Pragma where
       hsep $ [hlKeyword "INJECTIVE", pretty i]
     pretty (InjectiveForInferencePragma _ i) =
       hsep $ [hlKeyword "INJECTIVE_FOR_INFERENCE", pretty i]
+    pretty (ReductionPragma _ p) = case p of
+      OnlyUnfold xs -> hsep $ hlKeyword "ONLY_UNFOLD" : map pretty xs
+      DontUnfold xs -> hsep $ hlKeyword "DONT_UNFOLD" : map pretty xs
     pretty (InlinePragma _ True i) =
       hsep $ [hlKeyword "INLINE", pretty i]
     pretty (NotProjectionLikePragma _ i) =

@@ -1,0 +1,3 @@
+Issue8860Primitive.agda:5.1-4: error: [NotImplemented]
+Not implemented: unfolding directives for primitives, projections,
+or module copies

@@ -500,6 +500,7 @@ instance Reify Constraint where
   reify (CheckMetaInst m) = do
     t <- jMetaType . mvJudgement <$> lookupLocalMeta m
     OfType <$> reify (MetaV m []) <*> reify t
+  reify (ExpandMeta m) = reify (CheckMetaInst m)
   reify (CheckType t) = JustType <$> reify t
   reify (UsableAtModality _ _ mod t) = UsableAtMod mod <$> reify t
   reify (RewConstraint (LocalEquation g t u a)) = do
@@ -686,6 +687,7 @@ getConstraintsMentioning norm m = getConstrs instantiateBlockingFull (mentionsMe
         UnquoteTactic{}            -> Nothing
         CheckDataSort _ s          -> isMetaS s
         CheckMetaInst{}            -> Nothing
+        ExpandMeta{}               -> Nothing
         CheckType t                -> isMeta (unEl t)
         CheckLockedVars t _ _ _    -> isMeta t
         UsableAtModality _ ms _ t  -> caseMaybe ms (isMeta t) $ \ s -> isMetaS s `mplus` isMeta t

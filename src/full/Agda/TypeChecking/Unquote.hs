@@ -871,7 +871,7 @@ evalTCM v = Bench.billTo [Bench.Typing, Bench.Reflection] do
       checkExpr e a
 
     tcNormalise :: R.Term -> TCM Term
-    tcNormalise v = do
+    tcNormalise v = withElaborationReduction $ do
       r <- isReconstructed
       (v, t) <- locallyReduceAllDefs $ inferExpr  =<< toAbstract_ v
       if r then do
@@ -884,7 +884,7 @@ evalTCM v = Bench.billTo [Bench.Typing, Bench.Reflection] do
        quoteTerm =<< normalise v
 
     tcReduce :: R.Term -> TCM Term
-    tcReduce v = do
+    tcReduce v = withElaborationReduction $ do
       r <- isReconstructed
       (v, t) <- locallyReduceAllDefs $ inferExpr =<< toAbstract_ v
       if r then do

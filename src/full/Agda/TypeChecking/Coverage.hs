@@ -105,7 +105,7 @@ coverageCheck
   -> Type      -- ^ Absolute type (including the full parameter telescope).
   -> [Clause]  -- ^ Clauses of @f@.  These are the very clauses of @f@ in the signature.
   -> TCM SplitTree
-coverageCheck f t cs = do
+coverageCheck f t cs = withoutElaborationReduction $ do
   reportSLn "tc.cover.top" 30 $ "entering coverageCheck for " ++! prettyShow f
   reportSDoc "tc.cover.top" 75 $ "  of type (raw): " <+> (text . prettyShow) t
   reportSDoc "tc.cover.top" 45 $ "  of type: " <+> prettyTCM t

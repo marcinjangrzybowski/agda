@@ -133,6 +133,7 @@ instance MentionsMeta Constraint where
     UnquoteTactic tac hole goal -> False
     CheckDataSort q s   -> mm s
     CheckMetaInst m     -> True   -- TODO
+    ExpandMeta m        -> True
     CheckType t         -> mm t
     CheckLockedVars a b c d -> mm ((a, b), (c, d))
     UsableAtModality _ ms mod t -> mm (ms, t)

@@ -129,7 +129,7 @@ compactDef ::
   -> ReduceM CompactDef
 compactDef bEnv def copatterns rewr = do
 
-  shouldReduce <- shouldReduceDef (defName def)
+  shouldReduce <- shouldReduceDefinition def
   allowed      <- viewTC eAllowedReductions
 
   let isConOrProj = case theDef def of

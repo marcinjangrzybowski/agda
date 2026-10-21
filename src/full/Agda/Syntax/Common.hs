@@ -67,6 +67,18 @@ type Arity  = Nat
 -- | Number @>= 1@.
 type Nat1   = Nat
 
+-- | Declaration-local restrictions on unfolding during elaboration.
+-- Multiple directives compose by intersecting the permitted definitions.
+data ReductionPragma name
+  = OnlyUnfold [name]
+  | DontUnfold [name]
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+
+instance NFData name => NFData (ReductionPragma name)
+
+instance KillRange name => KillRange (ReductionPragma name) where
+  killRange = fmap killRange
+
 ---------------------------------------------------------------------------
 -- * IsMain
 ---------------------------------------------------------------------------

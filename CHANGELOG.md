@@ -12,6 +12,15 @@ Installation
 Pragmas and options
 -------------------
 
+* New `ONLY_UNFOLD` and `DONT_UNFOLD` pragmas control ordinary function
+  unfolding during conversion while elaborating a function's signature
+  and implementation, without changing its transparency at use sites.
+  Policies nest by intersection and compose with reflection reduction
+  controls. Restricted checking may refine only metas owned by the
+  definition; cross-owner obligations are retained for ordinary solving.
+  See [the manual](https://agda.readthedocs.io/en/latest/language/pragmas.html#elaboration-unfolding-pragmas)
+  for the supported targets and phase boundaries.
+
 Errors
 ------
 

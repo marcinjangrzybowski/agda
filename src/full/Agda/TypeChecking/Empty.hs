@@ -69,7 +69,7 @@ isEmptyTel tel = liftTCM $ isRight <$> checkEmptyTel noRange tel
 -- Either the type is possibly non-empty (Left err) or it is really empty
 -- (Right ()).
 checkEmptyType :: Range -> Dom Type -> TCM (Either ErrorNonEmpty ())
-checkEmptyType range t0 = do
+checkEmptyType range t0 = withoutElaborationReduction $ do
   mr <- tryRecordType (unDom t0)
   case mr of
 

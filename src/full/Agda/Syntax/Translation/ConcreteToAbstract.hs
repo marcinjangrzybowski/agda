@@ -190,8 +190,8 @@ recordConstructorType decls =
         -- Do some rudimentary matching here to get NotValidBeforeField instead
         -- of NotAValidLetDecl.
         C.NiceMutual _ _ _ _
-          ( C.FunSig _ _ _ _ macro _ _ _ _ _
-          :| [ C.FunDef _ _ abstract _ _ _ _
+          ( C.FunSig _ _ _ _ _ macro _ _ _ _ _
+          :| [ C.FunDef _ _ _ abstract _ _ _ _
              (C.Clause _ _ _ (C.LHS _p [] []) (C.RHS _) NoWhere [] :| [])
           ]) | abstract /= AbstractDef && macro /= MacroDef -> do
           mkLet d
@@ -846,7 +846,7 @@ scopeCheckExtendedLam r e cs = do
   -- Andreas, 2019-08-20
   -- Keep the following __IMPOSSIBLE__, which is triggered by -v scope.decl.trace:80,
   -- for testing issue #4016.
-  d <- C.FunDef r __IMPOSSIBLE__ a NotInstanceDef __IMPOSSIBLE__ __IMPOSSIBLE__ cname <$> do
+  d <- C.FunDef r [] __IMPOSSIBLE__ a NotInstanceDef __IMPOSSIBLE__ __IMPOSSIBLE__ cname <$> do
           forM cs $ \ (LamClause ps rhs ca) -> do
             let p   = C.rawAppP $
                         killRange (IdentP True $ C.QName cname) :| ps
@@ -1533,7 +1533,8 @@ checkLetDefInfo wh access macro abstract = do
 scopeCheckLetDef :: LetDefOrigin -> NiceDeclaration -> ScopeM (List1 A.LetBinding)
 scopeCheckLetDef wh d = setCurrentRange d do
   case d of
-    NiceMutual _ _ _ _ d@(C.FunSig _ access _ instanc macro info _ _ x t :| [C.FunDef _ _ abstract _ _ _ _ (cl :| [])]) -> do
+    NiceMutual _ _ _ _ d@(C.FunSig _ reds access _ instanc macro info _ _ x t :| [C.FunDef _ _ _ abstract _ _ _ _ (cl :| [])]) -> do
+      unless (null reds) $ typeError $ NotImplemented "unfolding directives on let bindings; use a where definition"
       checkLetDefInfo wh access macro abstract
 
       t <- toAbstract t
@@ -1609,9 +1610,9 @@ scopeCheckLetDef wh d = setCurrentRange d do
           case definedName p0 of
             Nothing -> throwError err
             Just x  -> scopeCheckLetDef wh $ NiceMutual empty tc cc YesPositivityCheck
-              (C.FunSig r PublicAccess ConcreteDef NotInstanceDef NotMacroDef
+              (C.FunSig r [] PublicAccess ConcreteDef NotInstanceDef NotMacroDef
                   info tc cc x (C.Underscore (getRange x) Nothing)
-              :| [ C.FunDef r __IMPOSSIBLE__ ConcreteDef NotInstanceDef __IMPOSSIBLE__ __IMPOSSIBLE__ __IMPOSSIBLE__
+              :| [ C.FunDef r [] __IMPOSSIBLE__ ConcreteDef NotInstanceDef __IMPOSSIBLE__ __IMPOSSIBLE__ __IMPOSSIBLE__
                 $ singleton $ C.Clause x (ca <> catchall) ai lhs (C.RHS rhs) NoWhere []
               ])
               where info = setOrigin Inserted ai
@@ -1831,6 +1832,10 @@ instance ToAbstract NiceDeclaration where
 
   -- Definitions (possibly mutual)
     NiceMutual kwr tc cc pc ds -> do
+      unless (null kwr) $ forM_ ds $ \case
+        C.FunSig _ reds _ _ _ _ _ _ _ _ _ | not (null reds) ->
+          typeError $ NotImplemented "unfolding directives in explicit mutual blocks"
+        _ -> pure ()
       reportSLn "scope.mutual" 40 ("starting checking mutual definitions: " ++ prettyShow ds)
       ds' <- catMaybes <$> toAbstract (List1.toList ds)
       reportSLn "scope.mutual" 40 ("finishing checking mutual definitions")
@@ -1839,13 +1844,16 @@ instance ToAbstract NiceDeclaration where
         return $ A.Mutual (MutualInfo tc cc pc (fuseRange kwr ds)) ds'
 
   -- Type signatures
-    C.FunSig r p a i m rel _ _ x t -> do
+    C.FunSig r reds p a i m rel _ _ x t -> do
         let kind = if m == MacroDef then MacroName else FunName
-        singleton . snd <$> toAbstractNiceAxiom kind (C.Axiom r p a i rel x t)
+        reds <- scopeCheckReductionPragmas reds
+        (_, A.Axiom k di ai pol y ty) <- toAbstractNiceAxiom kind (C.Axiom r p a i rel x t)
+        pure [A.Axiom k (di { Info.defReduction = reds }) ai pol y ty]
 
   -- Function definitions
-    C.FunDef r ds a i _ _ x cs -> do
+    C.FunDef r reds ds a i _ _ x cs -> do
         printLocals 30 $ "checking def " ++ prettyShow x
+        reds <- scopeCheckReductionPragmas reds
         x' <- toAbstractOldName x
         cs <- toAbstract cs
         -- Andreas, 2017-12-04 the name must reside in the current module
@@ -1855,7 +1863,7 @@ instance ToAbstract NiceDeclaration where
 
         unfoldFunction x'
         di <- updateDefInfoOpacity (mkDefInfoInstance x f PublicAccess a i NotMacroDef r)
-        return $ singleton $ A.FunDef di x' cs
+        return $ singleton $ A.FunDef (di { Info.defReduction = reds }) x' cs
 
   -- Uncategorized function clauses
     C.NiceFunClause _ _ _ _ _ _ (C.FunClause _ lhs _ _ _) ->
@@ -2554,6 +2562,13 @@ toAbstractNiceAxiom kind (C.Axiom r p a i info x t) = do
   return (y, A.Axiom kind definfo info mp y t')
 toAbstractNiceAxiom _ _ = __IMPOSSIBLE__
 
+-- Resolve directives at the declaration, never at a later use site.
+scopeCheckReductionPragmas :: [ReductionPragma C.QName] -> ScopeM [ReductionPragma A.QName]
+scopeCheckReductionPragmas = traverse $ traverse \ q -> setCurrentRange q $ do
+  toAbstract (OldQName q Nothing) >>= \case
+    A.Def' x NoSuffix -> pure x
+    _ -> typeError $ NotImplemented "unfolding directives for names other than ordinary functions"
+
 -- | Check that the name is allowed to be postulated: either we are in a
 -- builtin module, we are not in safe mode, or the axiom comes from a
 -- lone type signature (and so will be reported later as a missing
@@ -3108,6 +3123,7 @@ instance ToAbstract C.Pragma where
 
   -- Pragmas that are handled by the nicifier:
   toAbstract C.TerminationCheckPragma{}  = __IMPOSSIBLE__
+  toAbstract C.ReductionPragma{}         = __IMPOSSIBLE__
   toAbstract C.NoCoverageCheckPragma{}   = __IMPOSSIBLE__
   toAbstract C.NoPositivityCheckPragma{} = __IMPOSSIBLE__
   toAbstract C.NoUniverseCheckPragma{}   = __IMPOSSIBLE__
@@ -3325,6 +3341,7 @@ checkNoTerminationPragma b ds =
       C.WarningOnImport _ _         -> []
       C.InjectivePragma _ _         -> []
       C.InjectiveForInferencePragma{} -> []
+      C.ReductionPragma{}             -> []
       C.DisplayPragma _ _ _         -> []
       C.CatchallPragma _            -> []
       C.EtaEqualityPragma _         -> []

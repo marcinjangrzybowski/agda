@@ -1,0 +1,8 @@
+Issue8860Let.agda:6.11-7.16: error: [NotImplemented]
+Not implemented: unfolding directives on let bindings; use a where
+definition
+when scope checking
+let {-# ONLY_UNFOLD #-}
+    x : Nat
+    x = 0
+in x

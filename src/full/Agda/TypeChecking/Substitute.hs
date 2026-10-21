@@ -1197,6 +1197,7 @@ instance Subst Constraint where
     UnquoteTactic t h g      -> UnquoteTactic (rf t) (rf h) (rf g)
     CheckDataSort q s        -> CheckDataSort q (rf s)
     CheckMetaInst m          -> CheckMetaInst m
+    ExpandMeta m             -> ExpandMeta m
     CheckType t              -> CheckType (rf t)
     UsableAtModality cc ms mod m -> UsableAtModality cc (rf ms) mod (rf m)
     RewConstraint e          -> RewConstraint (rf e)

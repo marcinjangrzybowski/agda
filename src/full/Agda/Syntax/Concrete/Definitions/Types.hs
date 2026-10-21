@@ -69,8 +69,8 @@ data NiceDeclaration
     -- ^ An uncategorized function clause, could be a function clause
     --   without type signature or a pattern lhs (e.g. for irrefutable let).
     --   The 'Declaration' is the actual 'FunClause'.
-  | FunSig Range Access IsAbstract IsInstance IsMacro ArgInfo TerminationCheck CoverageCheck Name Expr
-  | FunDef Range (List1 Declaration) IsAbstract IsInstance TerminationCheck CoverageCheck Name (List1 Clause)
+  | FunSig Range [ReductionPragma QName] Access IsAbstract IsInstance IsMacro ArgInfo TerminationCheck CoverageCheck Name Expr
+  | FunDef Range [ReductionPragma QName] (List1 Declaration) IsAbstract IsInstance TerminationCheck CoverageCheck Name (List1 Clause)
       -- ^ Block of function clauses (we have seen the type signature before).
       --   The 'Declaration's are the original declarations that were processed
       --   into this 'FunDef' and are only used in 'notSoNiceDeclaration'.
@@ -212,8 +212,8 @@ instance HasRange NiceDeclaration where
   getRange (NiceImport o r x as dir)       = getRange (o, r, x, as, dir)
   getRange (NicePragma r _)                = r
   getRange (PrimitiveFunction r _ _ _ _)   = r
-  getRange (FunSig r _ _ _ _ _ _ _ _ _)    = r
-  getRange (FunDef r _ _ _ _ _ _ _)        = r
+  getRange (FunSig r _ _ _ _ _ _ _ _ _ _)    = r
+  getRange (FunDef r _ _ _ _ _ _ _ _)        = r
   getRange (NiceDataDef r _ _ _ _ _ _ _)   = r
   getRange (NiceLoneConstructor kwr ds)    = fuseRange kwr ds
   getRange (NiceRecDef r _ _ _ _ _ _ _ _ _)= r
@@ -242,8 +242,8 @@ instance Pretty NiceDeclaration where
     NiceRecSig _ _ _ _ _ _ _ x _ _ -> text "record" <+> pretty x
     NiceDataSig _ _ _ _ _ _ x _ _  -> text "data" <+> pretty x
     NiceFunClause{}                -> text "<function clause>"
-    FunSig _ _ _ _ _ _ _ _ x _     -> pretty x <+> colon <+> text "_"
-    FunDef _ _ _ _ _ _ x _         -> pretty x <+> text "= _"
+    FunSig _ _ _ _ _ _ _ _ _ x _     -> pretty x <+> colon <+> text "_"
+    FunDef _ _ _ _ _ _ _ x _         -> pretty x <+> text "= _"
     NiceDataDef _ _ _ _ _ x _ _    -> text "data" <+> pretty x <+> text "where"
     NiceLoneConstructor _ _        -> text "data _ where"
     NiceRecDef _ _ _ _ _ _ x  _ _ _ -> text "record" <+> pretty x <+> text "where"

@@ -266,6 +266,7 @@ isBlockingConstraint = \case
   CheckFunDef{}         -> True
   UnquoteTactic{}       -> True
   CheckMetaInst{}       -> True
+  ExpandMeta{}          -> False
   CheckType{}           -> True
   CheckLockedVars{}     -> True
   UsableAtModality{}    -> True
