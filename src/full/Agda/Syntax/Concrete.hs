@@ -675,12 +675,13 @@ data Pragma
   | InjectivePragma             Range QName
     -- ^ Mark a definition as injective for the pattern matching unifier.
   | InjectiveForInferencePragma Range QName
-  | ReductionPragma Range (ReductionPragma QName)
     -- ^ Mark a definition as injective for the conversion checker
   | DisplayPragma               Range Pattern Expr
     -- ^ Display lhs as rhs (modifies the printer).
 
   -- Attached (more or less) pragmas handled in the nicifier (Concrete.Definitions):
+  | ReductionPragma Range (ReductionPragma QName)
+    -- ^ Set the unfolding policy while checking the following function.
   | CatchallPragma              Range
     -- ^ Applies to the following function clause.
   | EtaEqualityPragma           Range

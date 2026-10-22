@@ -433,7 +433,7 @@ instance HasRange DeclarationWarning' where
 -- there is no error context printed after them.
 instance Pretty DeclarationException' where
   pretty (InvalidReductionPragma _) = text
-    "ONLY_UNFOLD and DONT_UNFOLD must precede a function type signature."
+    "ONLY_UNFOLD, DONT_UNFOLD, and UNFOLD_EVERYTHING must precede a function type signature."
   pretty (MultipleEllipses p) = fsep $
     pwords "Multiple ellipses in left-hand side" ++ [pretty p]
   pretty (DuplicateDefinition x y) = fsep $

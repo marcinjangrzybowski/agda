@@ -3,15 +3,20 @@
 module Internal.TypeChecking.Monad.Base ( tests ) where
 
 import Agda.Syntax.Abstract.Name (QName, qualify, noModuleName)
-import Agda.Syntax.Common (MetaId)
-import Agda.Syntax.Internal (Term(..), mkType, unblockOnMeta)
+import Agda.Interaction.Base (Rewrite(..))
+import Agda.Interaction.BasicOps (normalFormForDisplay, normalFormClosureForDisplay)
+import Agda.Syntax.Common (MetaId, defaultArgInfo)
+import Agda.Syntax.Internal (Term(..), Clause(..), ClauseRecursive(..), WakeUp(..), mkType, unblockOnMeta)
+import Agda.TypeChecking.CompiledClause qualified as CC
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.MetaVars ()
 import Agda.TypeChecking.Constraints ()
 import Agda.TypeChecking.Substitute (sort)
+import Agda.TypeChecking.Reduce (normalise)
 
 import Agda.Utils.Lens
 import Agda.Utils.Permutation (idP)
+import Agda.Utils.Null (empty)
 import qualified Data.Set as Set
 
 import Internal.Helpers
@@ -51,6 +56,8 @@ prop_restrictedMetaAssignment = tcmProperty $ do
 
 -- Entering the old meta's creation closure must not grant permission to write
 -- it. A structural check must also keep its baseline reduction phase there.
+-- The closure's lexical unfolding policy is restored, not intersected with
+-- the caller's policy: that would undo a nested override on resumption.
 prop_restrictedMetaClosure :: Property
 prop_restrictedMetaClosure = tcmProperty $ do
   a <- testOwner
@@ -67,10 +74,10 @@ prop_restrictedMetaClosure = tcmProperty $ do
         policy <- viewTC eElaborationReduceDefs
         pure $ authority == Just b && provenance == Just a
             && phase == ElaborationDisabled
-            && policy == Just (OnlyReduceDefs Set.empty)
+            && policy == Just (OnlyReduceDefs $ Set.singleton a)
 
--- Cross-owner obligations are retained and cannot be solved by an eager
--- wakeup inside the restricted declaration. Ordinary solving may solve them.
+-- A postponed equation retains its original authority even when woken from
+-- ordinary checking. The foreign meta must be solved independently first.
 prop_restrictedMetaDeferredConstraint :: Property
 prop_restrictedMetaDeferredConstraint = tcmProperty $ do
   owner <- testOwner
@@ -80,30 +87,124 @@ prop_restrictedMetaDeferredConstraint = tcmProperty $ do
       ValueCmp CmpEq (AsTermsOf $ sort $ mkType 1) (MetaV old []) (Sort $ mkType 0)
     solveAwakeConstraints
     isOpenMeta . mvInstantiation <$> lookupLocalMeta old
-  pending <- getAwakeConstraints
+  pending <- getAllConstraints
+  let retained = case pending of
+        [c] -> view eRestrictedMetaOwner (clEnv $ theConstraint c) == Just owner
+        _ -> False
+  wakeConstraints $ const WakeUp
   solveAwakeConstraints
-  solved <- isInstantiatedMeta old
-  remaining <- getAwakeConstraints
-  pure $ untouched && length pending == 1 && solved && null remaining
+  stillOpen <- isOpenMeta . mvInstantiation <$> lookupLocalMeta old
+  assignTerm' old [] (Sort $ mkType 0)
+  solveAwakeConstraints
+  remaining <- getAllConstraints
+  pure $ untouched && retained && stillOpen && null remaining
+
+-- An explicitly annotated child has a separate region, even with the same
+-- policy. Resetting unfolding does not permit it to solve its parent's metas.
+prop_restrictedNestedMetaRegion :: Property
+prop_restrictedNestedMetaRegion = tcmProperty $ do
+  parent <- testOwner
+  child <- testOwner
+  restricted parent $ do
+    outer <- testMeta =<< createMetaInfo
+    (blocked, localSolved) <- restricted child $
+      locallyTC eElaborationReduceDefs (const $ Just reduceAllDefs) $ do
+        blocked <- assignmentBlocked outer
+        local <- testMeta =<< createMetaInfo
+        assignTerm' local [] (Sort $ mkType 0)
+        solved <- isInstantiatedMeta local
+        pure (blocked, solved)
+    assignTerm' outer [] (Sort $ mkType 0)
+    outerSolved <- isInstantiatedMeta outer
+    pure $ blocked && localSolved && outerSolved
 
 -- Assigning a local meta can wake an older eta listener. Do not lose that
 -- listener when clearing the assigned meta's listener set.
 prop_restrictedMetaEtaListener :: Property
 prop_restrictedMetaEtaListener = tcmProperty $ do
   owner <- testOwner
-  old <- testMeta =<< createMetaInfo
+  target <- testOwner
+  old <- restricted target $ locallyTC eElaborationReduceDefs
+          (const $ Just $ DontReduceDefs $ Set.singleton target) $
+    testMeta =<< createMetaInfo
   pending <- restricted owner $ do
     local <- testMeta =<< createMetaInfo
     listenToMeta (EtaExpand old) local
     assignTerm' local [] (Sort $ mkType 0)
     solveAwakeConstraints
     getAwakeConstraints
-  let queued = case map (clValue . theConstraint) pending of
-        [ExpandMeta m] -> m == old
+  let queued = case pending of
+        [c] | ExpandMeta m <- clValue $ theConstraint c ->
+          let env = clEnv $ theConstraint c in
+          m == old && view eRestrictedMetaOwner env == Just target &&
+          view eElaborationReduceDefs env == Just (DontReduceDefs $ Set.singleton target)
         _ -> False
   solveAwakeConstraints
   remaining <- getAwakeConstraints
   pure $ queued && null remaining
+
+-- Display is a fresh read-only operation. A meta created during structural
+-- checking still has a lexical policy; displaying it must not change the
+-- caller's structural phase or grant permission to assign a foreign meta.
+prop_interactiveReduction :: Property
+prop_interactiveReduction = tcmProperty $ do
+  (f, body) <- testReducibleFunction
+  owner <- testOwner
+  old <- testMeta =<< createMetaInfo
+  restricted owner $ locallyTC eElaborationReduceDefs
+    (const $ Just $ DontReduceDefs $ Set.singleton f) $
+    withoutElaborationReduction $ do
+      let term = Def f []
+      before <- mayRefineMeta old
+      displayed <- normalFormForDisplay Normalised term
+      ordinary <- normalise term
+      after <- mayRefineMeta old
+      phase <- viewTC eElaborationReduction
+      authority <- viewTC eRestrictedMetaOwner
+      pure $ displayed == term && ordinary == body &&
+        not before && not after && phase == ElaborationDisabled && authority == Just owner
+
+-- Each constraint keeps its creation policy even when displayed from a goal
+-- with a different policy. Neither the stored payload nor its closure metadata
+-- may be rewritten by display normalization.
+prop_interactiveConstraintClosure :: Property
+prop_interactiveConstraintClosure = tcmProperty $ do
+  (f, body) <- testReducibleFunction
+  owner <- testOwner
+  caller <- testOwner
+  let term = Def f []
+      constraint = ValueCmp CmpEq (AsTermsOf $ sort $ mkType 1) term body
+      capture policy = restricted owner $ locallyTC eElaborationReduceDefs
+        (const $ Just policy) $ withoutElaborationReduction $ buildClosure constraint
+  denied <- capture $ DontReduceDefs $ Set.singleton f
+  allowed <- capture $ OnlyReduceDefs $ Set.singleton f
+  restricted caller $ locallyTC eElaborationReduceDefs
+    (const $ Just $ DontReduceDefs $ Set.singleton f) $ do
+      denied' <- normalFormClosureForDisplay Normalised denied
+      allowed' <- normalFormClosureForDisplay Normalised allowed
+      phase <- viewTC eElaborationReduction
+      authority <- viewTC eRestrictedMetaOwner
+      let saved cl = view eRestrictedMetaOwner (clEnv cl) == Just owner &&
+                     view eElaborationReduction (clEnv cl) == ElaborationDisabled
+          sides cl expected = case clValue cl of
+            ValueCmp CmpEq _ lhs rhs -> lhs == expected && rhs == body
+            _ -> False
+      pure $ sides denied' term && sides allowed' body &&
+        sides allowed term && saved denied' && saved allowed' &&
+        phase == ElaborationInactive && authority == Just caller
+
+testReducibleFunction :: TCM (QName, Term)
+testReducibleFunction = do
+  f <- testOwner
+  fun <- emptyFunctionData
+  let body = Sort $ mkType 0
+      def = FunctionDefn $ fun
+        { _funClauses = [(empty :: Clause) { clauseBody = Just body }]
+        , _funCompiled = Just $ CC.Done 0 NotRecursive [] body
+        , _funTerminates = Just True
+        }
+  addConstant' f defaultArgInfo (sort $ mkType 1) def
+  pure (f, body)
 
 testOwner :: TCM QName
 testOwner = qualify noModuleName <$> freshName_ ("owner" :: String)

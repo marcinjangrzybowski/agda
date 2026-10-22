@@ -70,7 +70,7 @@ import Agda.Utils.Time (measureTime, getCPUTime, fromMilliseconds)
 import Data.IORef (readIORef)
 
 import Agda.Interaction.Base (Rewrite(..))
-import Agda.Interaction.BasicOps (normalForm)
+import Agda.Interaction.BasicOps (normalFormForDisplay)
 
 import Agda.Mimer.Types (MimerResult(..), BaseComponents(..), Component(..), RecCall(..),
                          SearchBranch(..), SearchStepResult(..), SearchOptions(..),
@@ -194,7 +194,7 @@ runSearch norm options ii rng = withInteractionId ii $ do
         InstV inst -> do
           expr <- withInteractionId ii $ do
             metaArgs <- getMetaContextArgs metaVar
-            instantiateFull (apply (MetaV metaId []) metaArgs) >>= normalForm norm >>= reify
+            instantiateFull (apply (MetaV metaId []) metaArgs) >>= normalFormForDisplay norm >>= reify
           str <- P.render <$> prettyTCM expr
           let sol = MimerExpr str
           reportSDoc "mimer.init" 10 $ "Goal already solved. Solution:" <+> text str

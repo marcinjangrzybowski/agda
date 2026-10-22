@@ -68,10 +68,11 @@ type Arity  = Nat
 type Nat1   = Nat
 
 -- | Declaration-local restrictions on unfolding during elaboration.
--- Multiple directives compose by intersecting the permitted definitions.
+-- Each directive replaces the previous policy.
 data ReductionPragma name
-  = OnlyUnfold [name]
-  | DontUnfold [name]
+  = OnlyUnfold (List1 name)
+  | DontUnfold (List1 name)
+  | UnfoldEverything
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
 
 instance NFData name => NFData (ReductionPragma name)

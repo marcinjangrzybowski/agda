@@ -189,8 +189,9 @@ metasCreatedBy m = do
       (_, Nothing, ms) -> ms
       (_, Just m,  ms) -> MapS.insert next m ms
 
--- | May the active declaration refine this meta? Creation closures preserve
--- ownership when pruning produces a fresh representative of an older meta.
+-- | As with the abstract/opaque creation-context checks in #8837, an annotated
+-- definition can refine only metas from its own region. Creation closures
+-- preserve the region when pruning produces a new representative of a meta.
 mayRefineMeta :: (MonadTCEnv m, ReadTCState m) => MetaId -> m Bool
 mayRefineMeta m = viewTC eRestrictedMetaOwner >>= \case
   Nothing -> pure True
@@ -843,9 +844,13 @@ etaExpandListeners m = do
 wakeupListener :: MonadMetaSolver m => Listener -> m ()
   -- Andreas 2010-10-15: do not expand record mvars, lazyness needed for irrelevance
 wakeupListener (EtaExpand x)         =
-  ifM (mayRefineMeta x) (etaExpandMetaSafe x) $
-    localTC (set eDefinitionOwner Nothing . set eRestrictedMetaOwner Nothing) $
-      locallyReduceAllDefs $ addAwakeConstraint alwaysUnblock (ExpandMeta x)
+  ifM (mayRefineMeta x) (etaExpandMetaSafe x) $ do
+    mv <- lookupLocalMeta x
+    -- Queue the administrative expansion in the target's creation context;
+    -- do not execute it with the current region's assignment authority.
+    locallyTC eRestrictedMetaOwner (const Nothing) $
+      enterClosure (getMetaInfo mv) $ \ _ ->
+        addAwakeConstraint alwaysUnblock (ExpandMeta x)
 wakeupListener (CheckConstraint _ c) = do
   --reportSDoc "tc.meta.blocked" 20 $ "waking boxed constraint" <+> prettyTCM c
   modifyAwakeConstraints (c:)

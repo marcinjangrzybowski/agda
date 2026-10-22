@@ -1,0 +1,16 @@
+top_command (cmd_load currentFile [])
+
+-- The hole in the annotated helper resumes with its replacement policy.
+goal_command 0 cmd_give "refl"
+goal_command 1 cmd_give "refl"
+
+-- A sibling retains the outer denial: refl fails, an established proof works.
+goal_command 2 cmd_give "refl"
+goal_command 2 cmd_give "proof"
+
+-- Check the same behavior after reloading with a populated declaration cache.
+top_command (cmd_load currentFile [])
+goal_command 0 cmd_give "refl"
+goal_command 1 cmd_give "refl"
+goal_command 2 cmd_give "refl"
+goal_command 2 cmd_give "proof"

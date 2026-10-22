@@ -14,6 +14,6 @@ proof = refl
 blocked : f 0 ≡ 3
 blocked = {!!}
 
-{-# ONLY_UNFOLD #-}
+{-# DONT_UNFOLD f #-}
 local-meta : _
 local-meta = {!!}

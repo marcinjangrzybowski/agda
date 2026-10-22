@@ -64,6 +64,8 @@ Index of pragmas
 
 * :ref:`TERMINATING <terminating-pragma>`
 
+* :ref:`UNFOLD_EVERYTHING <elaboration-unfolding-pragmas>`
+
 * :ref:`WARNING_ON_USAGE <warning-pragma>`
 
 * :ref:`WARNING_ON_IMPORT <warning-pragma>`
@@ -72,8 +74,8 @@ See also :ref:`command-line-pragmas`.
 
 .. _elaboration-unfolding-pragmas:
 
-The ``ONLY_UNFOLD`` and ``DONT_UNFOLD`` pragmas
-_____________________________________________
+Elaboration unfolding pragmas
+_____________________________
 
 .. versionadded:: 2.10.0
 
@@ -91,40 +93,62 @@ attached pragmas may occur between them.
 
 Here ``double n = n + n``. Conversion may unfold ``double`` while leaving
 ``expensive`` folded. ``ONLY_UNFOLD double`` instead allows only
-``double`` among ordinary functions. An empty ``ONLY_UNFOLD`` list permits
-no ordinary functions; an empty ``DONT_UNFOLD`` list imposes no restriction.
+``double`` among ordinary functions. Both ``ONLY_UNFOLD`` and ``DONT_UNFOLD``
+require at least one name. ``UNFOLD_EVERYTHING`` takes no names and restores
+ordinary function unfolding, including inside an annotated declaration.
 Names must already be in scope. Primitive functions, proper record
 projections, and module-copy aliases are not supported as listed targets
 and are not governed by these pragmas. Projection-like ordinary functions
 are supported.
 
-Multiple pragmas and nested ``where`` declarations compose by intersecting
-their permissions. An inner pragma cannot re-enable a function forbidden
-by an outer pragma. Unannotated local declarations, generated with-functions,
-and extended lambdas inherit the enclosing policy.
+Each annotation sets a new policy, replacing any enclosing policy.
+This applies to both allow lists and deny lists. Consecutive deny lists do
+not accumulate. When several pragmas precede the same signature, the last
+one sets the policy; all listed names must still be valid targets.
+
+Unannotated local declarations, generated with-functions, and extended
+lambdas inherit the enclosing policy. Leaving a nested declaration restores
+the enclosing policy for siblings.
 
 .. code-block:: agda
 
-  {-# ONLY_UNFOLD f g #-}
+  {-# DONT_UNFOLD f g #-}
   {-# DONT_UNFOLD g #-}
   example : T
   example = helper
     where
-    {-# ONLY_UNFOLD f g h #-}
+    {-# UNFOLD_EVERYTHING #-}
     helper : T
     helper = body
 
-Both implementations may unfold only ``f`` among ordinary functions.
+The implementation of ``example`` keeps only ``g`` folded: the last pragma
+replaces the first one. Its annotated ``helper`` uses ordinary unfolding.
 Annotations on explicit ``mutual`` blocks and on ``let`` bindings are
 currently unsupported.
 
 The policy also applies to the reflected ``normalise`` and ``reduce``
 operations and to conversion requested by macros. It intersects with the
-reflection reduction filter, so a macro cannot re-enable a function denied
-by the enclosing declaration. Macro execution and rechecking of reflected
+reflection reduction filter, so a macro cannot re-enable a function excluded
+by the active declaration policy. Macro execution and rechecking of reflected
 syntax retain ordinary reduction. Nested ``withReduceDefs`` calls keep
 their existing replacement semantics for the reflection filter;
 ``askReduceDefs`` reports that filter, not the declaration's policy.
+``UNFOLD_EVERYTHING`` resets only the source policy, so an active reflection
+filter still applies. It also respects ordinary abstract/opaque visibility
+and termination restrictions.
+
+Interactive commands in a goal use that goal's saved policy when computing
+an expression or normalizing the displayed goal, context, inferred type,
+or elaborated term. Solved goals and displayed constraints each retain their
+own policy. Nested annotations and resets therefore affect these results in
+the same way as checking the definition. Full normalization uses only the
+permitted unfolding steps and can leave a listed function folded.
+Top-level computation without a selected goal uses ordinary unfolding.
+The computation mode that ignores ``abstract`` does not bypass these
+pragmas. Computing through ``show`` also respects the policy and may fail
+to produce a string if the required functions are kept folded.
+These commands cannot reconstruct applications that checking has already
+unfolded, for example in stored Cubical boundary terms.
 
 This is an elaboration policy, not an opacity boundary. Type-shape
 inspection, pattern unification, coverage and emptiness checking,
@@ -133,14 +157,16 @@ reduction. In particular, failure of restricted conversion is never
 evidence that a pattern is impossible. Restricting conversion can make
 otherwise accepted programs fail or change inferred terms.
 
-During restricted checking, Agda may refine only metas created for the
-annotated definition, including its signature and local implementation
-declarations. Pruned replacements retain their original ownership.
-Postponed work and interaction holes retain their policy and owner. An
-obligation involving an older meta is preserved for ordinary solving;
-that later solving may propagate choices made in the annotated definition
-to the older meta. These pragmas introduce no additional requirement on
-the ``--require-unique-meta-solutions`` option.
+Each explicitly annotated definition establishes a metavariable region.
+While checking it, Agda may refine only metas created in that region,
+including its signature and unannotated local helpers. An annotated nested
+helper establishes a new region, even with the same policy or with
+``UNFOLD_EVERYTHING``. Pruned replacements retain their original ownership.
+Postponed work and interaction holes retain their policy and region;
+resuming them does not grant permission to solve a foreign meta. A constraint
+can become solvable when that meta is independently resolved in its own
+context. These pragmas introduce no additional requirement on the
+``--require-unique-meta-solutions`` option.
 
 .. _display-pragma:
 

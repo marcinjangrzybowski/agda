@@ -1,4 +1,4 @@
-Issue8860Allow.agda:11.11-15: error: [UnequalTerms]
+Issue8860Allow.agda:14.11-15: error: [UnequalTerms]
 The terms
   f 0
 and

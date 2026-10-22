@@ -1,0 +1,5 @@
+Issue8860ResetNames.agda:7.23: error: [ParseError]
+f<ERROR>  #-}
+bad : Nat
+bad = f 0
+...

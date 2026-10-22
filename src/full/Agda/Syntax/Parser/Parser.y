@@ -171,6 +171,7 @@ import Agda.Utils.Impossible
     'NOINLINE'                { TokKeyword KwNOINLINE $$ }
     'ONLY_UNFOLD'             { TokKeyword KwONLY_UNFOLD $$ }
     'DONT_UNFOLD'             { TokKeyword KwDONT_UNFOLD $$ }
+    'UNFOLD_EVERYTHING'       { TokKeyword KwUNFOLD_EVERYTHING $$ }
     'MEASURE'                 { TokKeyword KwMEASURE $$ }
     'NO_TERMINATION_CHECK'    { TokKeyword KwNO_TERMINATION_CHECK $$ }
     'NO_POSITIVITY_CHECK'     { TokKeyword KwNO_POSITIVITY_CHECK $$ }
@@ -328,6 +329,7 @@ Token
     | 'NOINLINE'                { TokKeyword KwNOINLINE $1 }
     | 'ONLY_UNFOLD'             { TokKeyword KwONLY_UNFOLD $1 }
     | 'DONT_UNFOLD'             { TokKeyword KwDONT_UNFOLD $1 }
+    | 'UNFOLD_EVERYTHING'       { TokKeyword KwUNFOLD_EVERYTHING $1 }
     | 'NO_POSITIVITY_CHECK'     { TokKeyword KwNO_POSITIVITY_CHECK $1 }
     | 'NO_TERMINATION_CHECK'    { TokKeyword KwNO_TERMINATION_CHECK $1 }
     | 'NO_UNIVERSE_CHECK'       { TokKeyword KwNO_UNIVERSE_CHECK $1 }
@@ -1662,10 +1664,12 @@ InlinePragma
 
 ReductionPragma :: { Pragma }
 ReductionPragma
-  : '{-#' 'ONLY_UNFOLD' PragmaQNames '#-}'
-    { ReductionPragma (getRange ($1,$2,$3,$4)) (OnlyUnfold $3) }
-  | '{-#' 'DONT_UNFOLD' PragmaQNames '#-}'
-    { ReductionPragma (getRange ($1,$2,$3,$4)) (DontUnfold $3) }
+  : '{-#' 'ONLY_UNFOLD' PragmaQName PragmaQNames '#-}'
+    { ReductionPragma (getRange ($1,$2,$3,$4,$5)) (OnlyUnfold ($3 :| $4)) }
+  | '{-#' 'DONT_UNFOLD' PragmaQName PragmaQNames '#-}'
+    { ReductionPragma (getRange ($1,$2,$3,$4,$5)) (DontUnfold ($3 :| $4)) }
+  | '{-#' 'UNFOLD_EVERYTHING' '#-}'
+    { ReductionPragma (getRange ($1,$2,$3)) UnfoldEverything }
 
 NoInlinePragma :: { Pragma }
 NoInlinePragma

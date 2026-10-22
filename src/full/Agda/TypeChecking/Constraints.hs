@@ -69,17 +69,8 @@ instance MonadConstraint TCM where
 
 addConstraintTCM :: Blocker -> Constraint -> TCM ()
 addConstraintTCM unblock c = do
-  foreignMeta <- anyM (fmap not . mayRefineMeta) $ Set.toList $ allBlockingMetas unblock
-  if foreignMeta then
-    -- Retain the original obligation, but do not retry it inside the restricted
-    -- declaration. Once that declaration returns, ordinary solving may propagate
-    -- its choices to an older meta (direct containment, not noninterference).
-    localTC (set eDefinitionOwner Nothing . set eRestrictedMetaOwner Nothing) $
-      locallyReduceAllDefs $ addAwakeConstraint' alwaysUnblock c
-  else addLocalConstraintTCM unblock c
-
-addLocalConstraintTCM :: Blocker -> Constraint -> TCM ()
-addLocalConstraintTCM unblock c = do
+  -- Keep the creation environment, including its meta region. Retrying an
+  -- obligation outside that region must not grant it new assignment authority.
   pids <- viewTC eActiveProblems
   reportSDoc "tc.constr.add" 20 $ hsep
     [ "adding constraint"
@@ -288,7 +279,7 @@ solveSomeAwakeConstraintsTCM solveThis force = do
           reportSDoc "tc.constr.solve" 10 $ hsep
             [ "Solving awake constraints.", text . show $ length cs, "remaining."]
       owner <- viewTC eRestrictedMetaOwner
-      let owned c = maybe True (\ q -> Just q == view eDefinitionOwner (clEnv $ theConstraint c)) owner
+      let owned c = maybe True (\ q -> Just q == view eRestrictedMetaOwner (clEnv $ theConstraint c)) owner
       whenJustM (takeAwakeConstraint' (\ c -> solveThis c && owned c)) \ c -> do
         withConstraint solveConstraint c
         solve

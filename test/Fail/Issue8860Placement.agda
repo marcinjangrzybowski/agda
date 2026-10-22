@@ -2,5 +2,5 @@ module Issue8860Placement where
 open import Agda.Builtin.Nat
 
 bad : Nat
-{-# DONT_UNFOLD #-}
+{-# UNFOLD_EVERYTHING #-}
 bad = 0

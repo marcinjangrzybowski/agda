@@ -1,0 +1,5 @@
+Issue8860EmptyDeny.agda:3.17: error: [ParseError]
+#-}<ERROR>
+bad : Set₁
+bad = Set
+...

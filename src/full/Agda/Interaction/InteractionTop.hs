@@ -778,7 +778,7 @@ interpret (Cmd_goal_type_context_check norm ii rng s) = do
     term <- case goal of
       OfType _ ty -> checkExpr expr =<< isType_ ty
       _           -> __IMPOSSIBLE__
-    reify =<< B.normalForm norm term
+    reify =<< B.normalFormForDisplay norm term
   cmd_goal_type_context_and (GoalAndElaboration expr) norm ii rng s
 
 interpret (Cmd_show_module_contents norm ii rng s) = do

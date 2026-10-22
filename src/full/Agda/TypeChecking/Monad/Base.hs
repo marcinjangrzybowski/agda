@@ -3802,16 +3802,10 @@ locallyReduceDefs = locallyTC eReduceDefs . const
 locallyReduceAllDefs :: MonadTCEnv m => m a -> m a
 locallyReduceAllDefs = withoutElaborationReduction . locallyReduceDefs reduceAllDefs
 
--- | Intersect permissions, including mixed allow/deny lists.
-intersectReduceDefs :: ReduceDefs -> ReduceDefs -> ReduceDefs
-intersectReduceDefs (OnlyReduceDefs a) (OnlyReduceDefs b) = OnlyReduceDefs (Set.intersection a b)
-intersectReduceDefs (OnlyReduceDefs a) (DontReduceDefs b) = OnlyReduceDefs (Set.difference a b)
-intersectReduceDefs (DontReduceDefs a) (OnlyReduceDefs b) = OnlyReduceDefs (Set.difference b a)
-intersectReduceDefs (DontReduceDefs a) (DontReduceDefs b) = DontReduceDefs (Set.union a b)
-
 reductionPragmaDefs :: ReductionPragma QName -> ReduceDefs
-reductionPragmaDefs (OnlyUnfold ns) = OnlyReduceDefs (Set.fromList ns)
-reductionPragmaDefs (DontUnfold ns) = DontReduceDefs (Set.fromList ns)
+reductionPragmaDefs (OnlyUnfold ns) = OnlyReduceDefs (Set.fromList $ List1.toList ns)
+reductionPragmaDefs (DontUnfold ns) = DontReduceDefs (Set.fromList $ List1.toList ns)
+reductionPragmaDefs UnfoldEverything = reduceAllDefs
 
 data ElaborationReduction = ElaborationInactive | ElaborationActive | ElaborationDisabled
   deriving (Eq, Show, Generic)
@@ -4444,7 +4438,8 @@ data ColdEnv = ColdEnv {
   , envElaborationReduceDefs :: !(Maybe ReduceDefs)
   , envElaborationReduction :: !ElaborationReduction
   , envDefinitionOwner :: !(Maybe QName)
-    -- ^ Origin of newly created metas; shared by the signature and helpers.
+    -- ^ Origin of newly created metas; shared by the signature and unannotated
+    -- helpers. Each explicitly annotated definition starts a new region.
   , envRestrictedMetaOwner :: !(Maybe QName)
     -- ^ Active write restriction, preserved when entering foreign closures.
   , envInjectivityDepth :: !Int

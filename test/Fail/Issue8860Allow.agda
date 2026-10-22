@@ -6,6 +6,9 @@ f : Nat → Nat
 f zero = 3
 f (suc n) = 3
 
-{-# ONLY_UNFOLD #-}
+g : Nat → Nat
+g n = n
+
+{-# ONLY_UNFOLD g #-}
 blocked : f 0 ≡ 3
 blocked = refl

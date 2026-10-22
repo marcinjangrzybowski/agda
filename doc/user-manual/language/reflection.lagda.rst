@@ -605,13 +605,16 @@ following primitive operations::
 Declaration unfolding policies
 ------------------------------
 
-The :ref:`ONLY_UNFOLD and DONT_UNFOLD pragmas <elaboration-unfolding-pragmas>`
+The :ref:`elaboration unfolding pragmas <elaboration-unfolding-pragmas>`
 also govern conversion, ``normalise``, and ``reduce`` requested by a macro
 while elaborating the annotated definition. Their permissions intersect
 with the reflection filter. ``withReduceDefs`` still replaces the current
 reflection filter, and ``askReduceDefs`` reports that filter. Neither
-operation changes the enclosing declaration's policy. Macro execution and
-rechecking of reflected input syntax retain ordinary reduction.
+operation changes the active declaration policy. Source annotations on
+nested declarations replace the previous source policy.
+``UNFOLD_EVERYTHING`` resets that source policy and leaves the reflection
+filter in effect. Macro execution and rechecking of reflected input syntax
+retain ordinary reduction.
 
 Metaprogramming
 ---------------

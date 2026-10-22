@@ -1,0 +1,48 @@
+top_command (cmd_load currentFile [])
+
+-- Where-block holes precede their enclosing RHS: allow=0, reset=1,
+-- inherited=2, blocked=3, ordinary=4.
+goal_command 3 (cmd_compute DefaultCompute) "f 0"
+goal_command 3 (cmd_compute HeadCompute) "f 0"
+goal_command 3 (cmd_compute IgnoreAbstract) "f 0"
+goal_command 3 (cmd_compute DefaultCompute) "g 0"
+goal_command 3 (cmd_goal_type AsIs) ""
+goal_command 3 (cmd_goal_type Simplified) ""
+goal_command 3 (cmd_goal_type Normalised) ""
+goal_command 3 (cmd_context Normalised) ""
+goal_command 3 (cmd_infer Normalised) "p"
+goal_command 3 (cmd_goal_type_context Normalised) ""
+goal_command 3 (cmd_goal_type_context_check Normalised) "p"
+goal_command 3 (cmd_helper_function Normalised) "helper (f 0)"
+
+-- Inner policies replace the parent; siblings and top-level commands recover
+-- their own policy after inspecting a different goal.
+goal_command 0 (cmd_compute DefaultCompute) "f 0"
+goal_command 0 (cmd_compute DefaultCompute) "g 0"
+goal_command 0 (cmd_goal_type Normalised) ""
+goal_command 1 (cmd_compute DefaultCompute) "f 0"
+goal_command 1 (cmd_compute DefaultCompute) "g 0"
+goal_command 2 (cmd_compute DefaultCompute) "f 0"
+goal_command 4 (cmd_compute DefaultCompute) "f 0"
+top_command (cmd_compute_toplevel DefaultCompute "f 0")
+goal_command 3 (cmd_compute DefaultCompute) "f 0"
+goal_command 5 (cmd_context Normalised) ""
+
+-- Inspecting does not relax conversion or structural checking.
+goal_command 3 cmd_give "refl"
+goal_command 3 cmd_give "p"
+goal_command 0 cmd_give "refl"
+goal_command 1 cmd_give "refl"
+goal_command 2 cmd_give "refl"
+goal_command 2 cmd_give "proof"
+goal_command 6 cmd_make_case "n"
+goal_command 7 (cmd_intro False) ""
+goal_command 8 (cmd_elaborate_give Normalised) "identity (f 0)"
+
+-- Reusing the declaration cache must preserve the display policy too.
+top_command (cmd_load currentFile [])
+goal_command 3 (cmd_compute DefaultCompute) "f 0"
+goal_command 0 (cmd_compute DefaultCompute) "g 0"
+goal_command 1 (cmd_compute DefaultCompute) "f 0"
+goal_command 2 (cmd_goal_type Normalised) ""
+goal_command 3 (cmd_infer Simplified) "p"

@@ -37,7 +37,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Conversion (equalType)
 import Agda.TypeChecking.Telescope (flattenTel, piApplyM)
 import Agda.TypeChecking.Substitute (pattern TelV, telView', piApply, apply, applyE)
-import Agda.Interaction.BasicOps (normalForm)
+import Agda.Interaction.BasicOps (normalFormForDisplay)
 import Agda.Interaction.Base (Rewrite(..))
 import Agda.Benchmarking qualified as Bench
 import Agda.Utils.Benchmark (billTo)
@@ -605,7 +605,7 @@ checkSolved branch = do
 normaliseSolution :: Term -> SM Term
 normaliseSolution t = do
   norm <- asks searchRewrite
-  lift . normalForm norm =<< instantiateFull t
+  lift . normalFormForDisplay norm =<< instantiateFull t
 
 partitionStepResult :: [SearchStepResult] -> SM ([SearchBranch], [MimerResult])
 partitionStepResult [] = return ([],[])

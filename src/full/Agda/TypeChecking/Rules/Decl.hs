@@ -270,33 +270,29 @@ checkDecl d = setCurrentRange d $ withDeclarationReduction d $ do
         DifferentOpaque hs -> __IMPOSSIBLE__
       k1 (k2 cont)
 
--- | A policy is attached to both the signature and the clauses. Helpers inherit
--- the enclosing owner, while their own directives further restrict unfolding.
+-- | The last attached pragma sets the policy for the signature and clauses,
+-- replacing any enclosing policy. An annotated definition starts its own meta
+-- region, analogous to an opaque block (#8837); unannotated helpers inherit it.
 withDeclarationReduction :: A.Declaration -> TCM a -> TCM a
 withDeclarationReduction d cont = case d of
   A.Axiom _ i _ _ x _ -> enter i x
   A.FunDef i x _      -> enter i x
   _                  -> cont
   where
-    enter i x
-      | null (Info.defReduction i) = cont
-      | otherwise = do
-          forM_ (concatMap Fold.toList (Info.defReduction i)) $ \ q -> do
-            def <- getConstInfo q
-            case theDef def of
-              _ | isUnfoldingPragmaFunction def -> pure ()
-              AbstractDefn{} -> pure ()
-              _ -> typeError $ NotImplemented
-                "unfolding directives for primitives, projections, or module copies"
-          old <- viewTC eElaborationReduceDefs
-          owner <- fromMaybe x <$> viewTC eDefinitionOwner
-          guardOwner <- fromMaybe owner <$> viewTC eRestrictedMetaOwner
-          let policy = foldl intersectReduceDefs (fromMaybe reduceAllDefs old)
-                     $ map reductionPragmaDefs (Info.defReduction i)
-          localTC (set eElaborationReduceDefs (Just policy)
-                 . over eElaborationReduction (\ p -> if p == ElaborationDisabled then p else ElaborationInactive)
-                 . set eDefinitionOwner (Just owner)
-                 . set eRestrictedMetaOwner (Just guardOwner)) cont
+    enter i x = case lastMaybe (Info.defReduction i) of
+      Nothing -> cont
+      Just pragma -> do
+        forM_ (concatMap Fold.toList (Info.defReduction i)) $ \ q -> do
+          def <- getConstInfo q
+          case theDef def of
+            _ | isUnfoldingPragmaFunction def -> pure ()
+            AbstractDefn{} -> pure ()
+            _ -> typeError $ NotImplemented
+              "unfolding directives for primitives, projections, or module copies"
+        localTC (set eElaborationReduceDefs (Just $ reductionPragmaDefs pragma)
+               . over eElaborationReduction (\ p -> if p == ElaborationDisabled then p else ElaborationInactive)
+               . set eDefinitionOwner (Just x)
+               . set eRestrictedMetaOwner (Just x)) cont
 
 -- Some checks that should be run at the end of a mutual block. The
 -- set names contains the names defined in the mutual block.

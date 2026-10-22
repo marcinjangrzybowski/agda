@@ -236,7 +236,7 @@ elaborate_give norm force ii e = withInteractionId ii $ do
   reportSDoc "interaction.give" 40 $ "v = " TP.<+> pure (pretty v)
   -- Reduce projection-likes before quoting, otherwise instance
   -- selection may fail on reload (see #6203).
-  nv <- reduceProjectionLike =<< normalForm norm v
+  nv <- reduceForDisplay $ reduceProjectionLike =<< normalForm norm v
   locallyTC ePrintMetasBare (const True) $ reify nv
 
 -- | Try to refine hole by expression @e@.
@@ -327,10 +327,10 @@ refine force ii e = do
 evalInCurrent :: ComputeMode -> Expr -> TCM Expr
 evalInCurrent cmode e = do
   (v, _t) <- inferExpr e
-  vb <- reduceB v
+  vb <- reduceForDisplay $ reduceB v
   reportSDoc "interaction.eval" 30 $ "evaluated to" TP.<+> TP.pretty vb
   v  <- pure $ ignoreBlocking vb
-  reify =<< if cmode == HeadCompute then pure v else normalise v
+  reify =<< if cmode == HeadCompute then pure v else reduceForDisplay (normalise v)
 
 
 evalInMeta :: InteractionId -> ComputeMode -> Expr -> TCM Expr
@@ -343,13 +343,35 @@ evalInMeta ii cmode e =
 -- | Modifier for interactive commands,
 --   specifying the amount of normalization in the output.
 --
-normalForm :: (Reduce t, Simplify t, Instantiate t, Normalise t) => Rewrite -> t -> TCM t
+normalForm :: (MonadReduce m, Reduce t, Simplify t, Instantiate t, Normalise t) => Rewrite -> t -> m t
 normalForm = \case
   AsIs         -> instantiate   -- #4975: reify will also instantiate by for goal-type-and-context-and-check
   Instantiated -> instantiate   --        we get a top-level fresh meta which has disappeared from state by the
   HeadNormal   -> reduce        --        time we get to reification. Hence instantiate here.
   Simplified   -> simplify
   Normalised   -> normalise
+
+-- | Reduce an interactive result using the restored lexical unfolding policy.
+-- This is a fresh display operation, even if the meta was created during a
+-- structural check with elaboration reduction disabled. Restrict the action to
+-- the read-only reducer: checking, meta assignment, and the caller's phase must
+-- not be affected. Enter any meta/constraint closure before calling this helper.
+reduceForDisplay :: ReduceM a -> TCM a
+reduceForDisplay = runReduceM . locallyTC eElaborationReduction (const ElaborationActive)
+
+normalFormForDisplay :: (Reduce t, Simplify t, Instantiate t, Normalise t) => Rewrite -> t -> TCM t
+normalFormForDisplay norm = reduceForDisplay . normalForm norm
+
+-- | Normalise a constraint in its own policy, not that of the goal currently
+-- being inspected. Preserve its saved checking environment and write authority.
+-- The generic reduction instances for closures would restore the saved phase
+-- inside 'reduceForDisplay', losing the display activation.
+normalFormClosureForDisplay
+  :: (Reduce t, Simplify t, Instantiate t, Normalise t)
+  => Rewrite -> Closure t -> TCM (Closure t)
+normalFormClosureForDisplay norm cl = do
+  value <- enterClosure cl $ normalFormForDisplay norm
+  pure cl { clValue = value }
 
 -- | Evaluate the given expression in the current environment
 --   with allowed reductions modified according to 'ComputeMode'.
@@ -716,7 +738,7 @@ getConstraintsMentioning norm m = getConstrs instantiateBlockingFull (mentionsMe
       reportSDoc "tc.constr.mentioning" 20 $ "getConstraintsMentioning"
       forM cs $ \(PConstr s ub c) -> do
         reportSDoc "tc.constr.mentioning" 20 $ "constraint:  " TP.<+> prettyTCM c
-        c <- normalForm norm c
+        c <- normalFormClosureForDisplay norm c
         let hm = hasHeadMeta (clValue c)
         reportSDoc "tc.constr.mentioning" 20 $ "constraint:  " TP.<+> prettyTCM c
         reportSDoc "tc.constr.mentioning" 20 $ "hasHeadMeta: " TP.<+> prettyTCM hm
@@ -752,8 +774,8 @@ interactionIdToMetaId i = do
 getConstraints :: Rewrite -> TCM [OutputForm C.Expr C.Expr]
 getConstraints norm = do
     cs <- stripConstraintPids <$> M.getAllConstraints
-    cs <- forM cs \ (c :: ProblemConstraint) -> do
-            cl <- reify =<< normalForm norm c
+    cs <- forM cs \ (PConstr pids unblock c) -> do
+            cl <- reify . PConstr pids unblock =<< normalFormClosureForDisplay norm c
             enterClosure cl abstractToConcrete_
     ss <- mapM toOutputForm =<< getSolvedInteractionPoints True norm -- get all
     return $ ss ++ cs
@@ -798,7 +820,7 @@ getIPBoundary norm ii = withInteractionId ii $ do
       -- interaction point's context as a keysSet.
       as <- getContextArgs
       let
-        c = abstractToConcrete_ <=< reifyUnblocked <=< normalForm norm
+        c = abstractToConcrete_ <=< reifyUnblocked <=< normalFormForDisplay norm
         go (im, rhs) = do
           reportSDoc "tc.ip.boundary" 30 $ TP.vcat
             [ "reifying constraint for face" TP.<+> TP.pretty im
@@ -819,7 +841,7 @@ getIPBoundary norm ii = withInteractionId ii $ do
 typeAndFacesInMeta :: InteractionId -> Rewrite -> Expr -> TCM (Expr, [IPFace' C.Expr])
 typeAndFacesInMeta ii norm expr = withInteractionId ii $ do
   (ex, ty) <- inferExpr expr
-  ty <- normalForm norm ty
+  ty <- normalFormForDisplay norm ty
   ip <- lookupInteractionPoint ii
 
   io <- primIOne
@@ -827,14 +849,14 @@ typeAndFacesInMeta ii norm expr = withInteractionId ii $ do
   let
     go im = do
       let
-        c = abstractToConcrete_ <=< reifyUnblocked <=< normalForm norm
+        c = abstractToConcrete_ <=< reifyUnblocked <=< normalFormForDisplay norm
         fa = IntMap.toList im
         face (i, m) = inplaceS i $ if m then io else iz
         sub = foldr (\f s -> composeS (face f) s) idS fa
       eqns <- forM fa $ \(a, b) -> do
         a <- c (I.Var a [])
         (,) a <$> c (if b then io else iz)
-      fmap (IPFace' eqns) . c =<< simplify (applySubst sub ex)
+      fmap (IPFace' eqns) . c =<< reduceForDisplay (simplify $ applySubst sub ex)
 
   faces <- traverse go $ MapS.keys (getBoundary (ipBoundary ip))
   ty <- reifyUnblocked ty
@@ -907,7 +929,7 @@ getSolvedInteractionPoints all norm = concat <$> do
               v <- instantiate v
               let isMeta = case v of MetaV{} -> True; _ -> False
               if isMeta && not all then return [] else do
-                e <- blankNotInScope =<< reify =<< normalForm norm v
+                e <- blankNotInScope =<< reify =<< normalFormForDisplay norm v
                 return [(i, m, ScopedExpr scope e)]
             unsol = return []
         case mvInstantiation mv of
@@ -931,7 +953,7 @@ typeOfMetaMI norm mi =
       -- otherwise rewrite rules in parametrized modules will not fire.
       vs <- getContextArgs
       t <- t `piApplyM` permute (takeP (size vs) $ mvPermutation mv) vs
-      t <- normalForm norm t
+      t <- normalFormForDisplay norm t
       let x = NamedMeta ms i
       reportSDoc "interactive.meta" 10 $ TP.vcat
         [ TP.text $ unwords ["permuting", show i, "with", show $ mvPermutation mv]
@@ -1038,7 +1060,7 @@ metaHelperType norm ii rng s = withInteractionId ii do
       let arity = size atel
           (delta1, delta2, _, a', vtys') = splitTelForWith tel a vtys
       a <- runInPrintingEnvironment $ do
-        reify =<< cleanupType arity args =<< normalForm norm =<< fst <$> withFunctionType delta1 vtys' delta2 a' empty
+        reify =<< cleanupType arity args =<< normalFormForDisplay norm =<< fst <$> withFunctionType delta1 vtys' delta2 a' empty
       reportSDoc "interaction.helper" 10 do
         let extractOtherType = \case { OtherType a -> a; _ -> __IMPOSSIBLE__ }
         let (vs, as)   = List1.unzipWith (fmap extractOtherType . unArg) vtys
@@ -1172,7 +1194,7 @@ contextOfMeta ii norm = withInteractionId ii $ do
         let n = nameConcrete name
         x  <- abstractToConcrete_ name
         let s = C.isInScope x
-        ty <- reifyUnblocked =<< normalForm norm t
+        ty <- reifyUnblocked =<< normalFormForDisplay norm t
         return $ ResponseContextEntry n x (Arg ai ty) Nothing s
 
     mkLet :: (Name, Open M.LetBinding) -> TCM (Maybe ResponseContextEntry)
@@ -1182,13 +1204,13 @@ contextOfMeta ii norm = withInteractionId ii $ do
         let n = nameConcrete name
         x  <- abstractToConcrete_ name
         let s = C.isInScope x
-        ty <- reifyUnblocked =<< normalForm norm dom
+        ty <- reifyUnblocked =<< normalFormForDisplay norm dom
               -- Remove let bindings from x and later, to avoid folding to x = x, or using bindings
               -- not introduced when x was defined.
         mv <- case isAxiom of
           -- Andreas, 2026-01-29, issue #8344: do not print bindings for 'LetAxiom's.
           YesAxiom -> pure Nothing
-          NoAxiom  -> Just <$> do removeLetBindingsFrom name $ reifyUnblocked =<< normalForm norm tm
+          NoAxiom  -> Just <$> do removeLetBindingsFrom name $ reifyUnblocked =<< normalFormForDisplay norm tm
         return $ ResponseContextEntry n x ty mv s
 
     shouldHide :: ArgInfo -> A.Name -> Bool
@@ -1200,7 +1222,7 @@ contextOfMeta ii norm = withInteractionId ii $ do
 typeInCurrent :: Rewrite -> Expr -> TCM Expr
 typeInCurrent norm e =
     do  (_,t) <- wakeIrrelevantVars $ inferExpr e
-        v <- normalForm norm t
+        v <- normalFormForDisplay norm t
         reifyUnblocked v
 
 
@@ -1472,7 +1494,7 @@ getRecordContents norm ce = do
         , "  doms = " TP.<+> prettyTCM doms
         , "  doms'= " TP.<+> addContext tel (prettyTCM doms)
         ]
-      ts <- mapM (normalForm norm . unDom) doms
+      ts <- mapM (normalFormForDisplay norm . unDom) doms
       return ([], tel, zip xs ts)
 
 -- | Returns the contents of the given module.
@@ -1498,7 +1520,7 @@ getModuleContents norm mm = do
   types <- forMaybeM xns $ \(x, n) -> do
     getConstInfo' (anameName n) >>= \case
       Right d -> do
-        t <- normalForm norm =<< (defType <$> instantiateDef d)
+        t <- normalFormForDisplay norm =<< (defType <$> instantiateDef d)
         return $ Just (x, t)
       Left{} -> return Nothing
   return (Map.keys modules, EmptyTel, types)
